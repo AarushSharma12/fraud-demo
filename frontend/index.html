@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fraud Detection Co-Pilot - INFO 492</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Arial, sans-serif;
+        background: #0a0e14;
+        color: #e6edf3;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        font-size: 28px;
+        margin-bottom: 8px;
+        color: #58a6ff;
+      }
+
+      .subtitle {
+        color: #8b949e;
+        font-size: 14px;
+      }
+
+      .card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+
+      h2 {
+        font-size: 20px;
+        margin-bottom: 16px;
+        color: #58a6ff;
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        background: #238636;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      button:hover {
+        background: #2ea043;
+      }
+
+      button:disabled {
+        background: #484f58;
+        cursor: not-allowed;
+      }
+
+      button.secondary {
+        background: #21262d;
+        border: 1px solid #30363d;
+      }
+
+      button.secondary:hover {
+        background: #30363d;
+      }
+
+      input {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        color: #e6edf3;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        flex: 1;
+        min-width: 200px;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .metric {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        padding: 16px;
+        border-radius: 8px;
+      }
+
+      .metric-label {
+        color: #8b949e;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      .metric-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #58a6ff;
+      }
+
+      .metric-value.pass {
+        color: #2ea043;
+      }
+
+      .metric-value.fail {
+        color: #da3633;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 12px;
+        border-bottom: 1px solid #30363d;
+      }
+
+      th {
+        color: #8b949e;
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .badge-fraud {
+        background: #da3633;
+        color: white;
+      }
+
+      .badge-legit {
+        background: #2ea043;
+        color: white;
+      }
+
+      .badge-review {
+        background: #9e6a03;
+        color: white;
+      }
+
+      .alert {
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        display: none;
+      }
+
+      .alert.error {
+        background: #da3633;
+        color: white;
+        display: block;
+      }
+
+      .alert.success {
+        background: #2ea043;
+        color: white;
+        display: block;
+      }
+
+      .alert.warning {
+        background: #9e6a03;
+        color: white;
+        display: block;
+      }
+
+      .status {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+
+      .status-ok {
+        background: #2ea043;
+      }
+      .status-error {
+        background: #da3633;
+      }
+      .status-pending {
+        background: #9e6a03;
+      }
+
+      .flag {
+        display: inline-block;
+        background: #da3633;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin-right: 4px;
+      }
+
+      .thresholds {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      .thresholds h3 {
+        color: #8b949e;
+        font-size: 14px;
+        margin-bottom: 8px;
+      }
+
+      .threshold-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 13px;
+      }
+
+      .threshold-status {
+        font-weight: 600;
+      }
+
+      .threshold-status.pass {
+        color: #2ea043;
+      }
+
+      .threshold-status.fail {
+        color: #da3633;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>🛡️ Fraud Detection Co-Pilot</h1>
+        <p class="subtitle">
+          INFO 492 - Finance Industry (PROTECT) - Week 3 Demo #1
+        </p>
+        <p class="subtitle" style="margin-top: 4px">
+          <strong>Hypothesis:</strong> AI agent reduces case-review time by ≥30%
+          while maintaining recall ≥0.80 and precision ≥0.75
+        </p>
+      </header>
+
+      <div id="alert" class="alert"></div>
+
+      <!-- System Status -->
+      <div class="card">
+        <h2>🔍 System Status</h2>
+        <div class="controls">
+          <button id="testBtn" class="secondary">Test Connection</button>
+          <span id="status" style="display: flex; align-items: center">
+            <span class="status status-pending"></span>
+            <span>Not tested</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="card">
+        <h2>🎯 Run Analysis</h2>
+        <div class="controls">
+          <button id="batchBtn">Run All 50 Transactions</button>
+          <input
+            id="singleInput"
+            type="text"
+            placeholder="Enter transaction ID (e.g., T001)"
+          />
+          <button id="singleBtn" class="secondary">Analyze Single</button>
+        </div>
+      </div>
+
+      <!-- Performance Metrics -->
+      <div class="card">
+        <h2>📊 Performance Metrics</h2>
+
+        <!-- Thresholds Status -->
+        <div class="thresholds">
+          <h3>Target Thresholds</h3>
+          <div class="threshold-item">
+            <span>Precision ≥ 75%</span>
+            <span id="precisionThreshold" class="threshold-status">-</span>
+          </div>
+          <div class="threshold-item">
+            <span>Recall ≥ 80%</span>
+            <span id="recallThreshold" class="threshold-status">-</span>
+          </div>
+          <div class="threshold-item">
+            <span>Refusal Rate ≤ 15%</span>
+            <span id="refusalThreshold" class="threshold-status">-</span>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <div class="metric-label">Precision</div>
+            <div class="metric-value" id="precision">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Recall</div>
+            <div class="metric-value" id="recall">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Refusal Rate</div>
+            <div class="metric-value" id="refusal">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Total Cases</div>
+            <div class="metric-value" id="total">-</div>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px; color: #8b949e">
+          Confusion Matrix
+        </h3>
+        <table>
+          <tr>
+            <td>True Positives (TP)</td>
+            <td id="tp">-</td>
+            <td style="color: #8b949e; font-size: 12px">
+              Correctly identified fraud
+            </td>
+          </tr>
+          <tr>
+            <td>False Positives (FP)</td>
+            <td id="fp">-</td>
+            <td style="color: #8b949e; font-size: 12px">
+              Legitimate flagged as fraud
+            </td>
+          </tr>
+          <tr>
+            <td>False Negatives (FN)</td>
+            <td id="fn">-</td>
+            <td style="color: #8b949e; font-size: 12px">Fraud missed</td>
+          </tr>
+          <tr>
+            <td>True Negatives (TN)</td>
+            <td id="tn">-</td>
+            <td style="color: #8b949e; font-size: 12px">
+              Correctly identified legitimate
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Results Table -->
+      <div class="card">
+        <h2>📋 Recent Results (Last 20)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Decision</th>
+              <th>Confidence</th>
+              <th>Red Flags</th>
+              <th>True Label</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="results">
+            <tr>
+              <td colspan="6" style="text-align: center; color: #8b949e">
+                No results yet. Run batch or analyze a single transaction.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Demo Notes -->
+      <div class="card">
+        <h2>📝 Demo Notes</h2>
+        <div style="color: #8b949e; font-size: 14px">
+          <p style="margin-bottom: 10px"><strong>Red Flags:</strong></p>
+          <ul style="margin-left: 20px; margin-bottom: 10px">
+            <li>
+              <span class="flag">large_amount</span> Transaction > 5x average or
+              > $800
+            </li>
+            <li><span class="flag">new_merchant</span> Unknown merchant</li>
+            <li>
+              <span class="flag">velocity_spike</span> Low velocity + large
+              amount
+            </li>
+            <li><span class="flag">geo_risk</span> Non-US geography</li>
+            <li><span class="flag">device_new</span> First-time device</li>
+          </ul>
+          <p style="margin-bottom: 10px"><strong>Decision Logic:</strong></p>
+          <ul style="margin-left: 20px">
+            <li>≥2 flags → FRAUD (high confidence)</li>
+            <li>0 flags + established pattern → LEGIT</li>
+            <li>Uncertain → NEEDS_REVIEW (human-in-the-loop)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API = "http://localhost:8000";
+
+      // Elements
+      const testBtn = document.getElementById("testBtn");
+      const batchBtn = document.getElementById("batchBtn");
+      const singleBtn = document.getElementById("singleBtn");
+      const singleInput = document.getElementById("singleInput");
+      const status = document.getElementById("status");
+      const alert = document.getElementById("alert");
+
+      // Show alert
+      function showAlert(message, type = "error") {
+        alert.textContent = message;
+        alert.className = `alert ${type}`;
+        setTimeout(() => {
+          alert.className = "alert";
+        }, 5000);
+      }
+
+      // Update status
+      function updateStatus(message, type = "pending") {
+        status.innerHTML = `<span class="status status-${type}"></span><span>${message}</span>`;
+      }
+
+      // Test connection
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        updateStatus("Testing...", "pending");
+
+        try {
+          const res = await fetch(`${API}/`);
+          if (res.ok) {
+            updateStatus("Connected ✓", "ok");
+            showAlert("Backend is running!", "success");
+          } else {
+            throw new Error("Backend returned error");
+          }
+        } catch (err) {
+          updateStatus("Not connected ✗", "error");
+          showAlert(
+            "Cannot connect to backend. Run: cd backend && uvicorn main:app --reload"
+          );
+        } finally {
+          testBtn.disabled = false;
+        }
+      });
+
+      // Update metrics display
+      function updateMetrics(metrics) {
+        const precisionPct = metrics.precision * 100;
+        const recallPct = metrics.recall * 100;
+        const refusalPct = metrics.refusal_rate * 100;
+
+        // Update values
+        const precisionEl = document.getElementById("precision");
+        const recallEl = document.getElementById("recall");
+        const refusalEl = document.getElementById("refusal");
+
+        precisionEl.textContent = precisionPct.toFixed(1) + "%";
+        recallEl.textContent = recallPct.toFixed(1) + "%";
+        refusalEl.textContent = refusalPct.toFixed(1) + "%";
+
+        // Color code based on thresholds
+        precisionEl.className =
+          precisionPct >= 75 ? "metric-value pass" : "metric-value fail";
+        recallEl.className =
+          recallPct >= 80 ? "metric-value pass" : "metric-value fail";
+        refusalEl.className =
+          refusalPct <= 15 ? "metric-value pass" : "metric-value fail";
+
+        // Update threshold status
+        document.getElementById("precisionThreshold").textContent =
+          precisionPct >= 75 ? "✓ PASS" : "✗ FAIL";
+        document.getElementById("precisionThreshold").className =
+          precisionPct >= 75
+            ? "threshold-status pass"
+            : "threshold-status fail";
+
+        document.getElementById("recallThreshold").textContent =
+          recallPct >= 80 ? "✓ PASS" : "✗ FAIL";
+        document.getElementById("recallThreshold").className =
+          recallPct >= 80 ? "threshold-status pass" : "threshold-status fail";
+
+        document.getElementById("refusalThreshold").textContent =
+          refusalPct <= 15 ? "✓ PASS" : "✗ FAIL";
+        document.getElementById("refusalThreshold").className =
+          refusalPct <= 15 ? "threshold-status pass" : "threshold-status fail";
+
+        // Update other metrics
+        document.getElementById("total").textContent = metrics.total;
+        document.getElementById("tp").textContent = metrics.tp;
+        document.getElementById("fp").textContent = metrics.fp;
+        document.getElementById("fn").textContent = metrics.fn;
+        document.getElementById("tn").textContent = metrics.tn;
+
+        // Show overall status
+        const allPass =
+          precisionPct >= 75 && recallPct >= 80 && refusalPct <= 15;
+        if (allPass) {
+          showAlert("✓ All performance thresholds met!", "success");
+        } else {
+          showAlert(
+            "⚠️ Some thresholds not met. Adjust detection parameters.",
+            "warning"
+          );
+        }
+      }
+
+      // Update results table
+      function updateResults(results) {
+        const tbody = document.getElementById("results");
+        tbody.innerHTML = results
+          .map((r) => {
+            const decisionBadge =
+              r.decision === "FRAUD"
+                ? "fraud"
+                : r.decision === "LEGIT"
+                ? "legit"
+                : "review";
+
+            let resultIcon = "";
+            if (r.decision === "NEEDS_REVIEW") {
+              resultIcon = "⏸️";
+            } else if (r.decision === r.true_label) {
+              resultIcon = "✅";
+            } else {
+              resultIcon = "❌";
+            }
+
+            const flags =
+              r.flags.map((f) => `<span class="flag">${f}</span>`).join(" ") ||
+              "-";
+
+            return `
+          <tr>
+            <td>${r.txn_id}</td>
+            <td><span class="badge badge-${decisionBadge}">${
+              r.decision
+            }</span></td>
+            <td>${(r.confidence * 100).toFixed(0)}%</td>
+            <td>${flags}</td>
+            <td>${r.true_label}</td>
+            <td>${resultIcon}</td>
+          </tr>
+        `;
+          })
+          .join("");
+      }
+
+      // Run batch
+      batchBtn.addEventListener("click", async () => {
+        batchBtn.disabled = true;
+        batchBtn.textContent = "Processing...";
+
+        try {
+          const start = Date.now();
+          const res = await fetch(`${API}/batch`, { method: "POST" });
+          const elapsed = Date.now() - start;
+
+          if (!res.ok) throw new Error("Batch failed");
+
+          const data = await res.json();
+          updateMetrics(data.metrics);
+          updateResults(data.results);
+
+          showAlert(
+            `✓ Processed ${data.total} transactions in ${elapsed}ms (${(
+              elapsed / data.total
+            ).toFixed(0)}ms avg)`,
+            "success"
+          );
+        } catch (err) {
+          showAlert("Batch processing failed: " + err.message);
+        } finally {
+          batchBtn.disabled = false;
+          batchBtn.textContent = "Run All 50 Transactions";
+        }
+      });
+
+      // Analyze single
+      singleBtn.addEventListener("click", async () => {
+        const txnId = singleInput.value.trim();
+        if (!txnId) {
+          showAlert("Enter a transaction ID (e.g., T001)");
+          return;
+        }
+
+        singleBtn.disabled = true;
+
+        try {
+          const res = await fetch(`${API}/analyze?txn_id=${txnId}`, {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("Transaction not found");
+
+          const data = await res.json();
+          updateResults([data]);
+
+          const flagsText =
+            data.flags.length > 0 ? ` (${data.flags.join(", ")})` : "";
+          showAlert(
+            `✓ Analyzed ${txnId}: ${data.decision}${flagsText}`,
+            "success"
+          );
+        } catch (err) {
+          showAlert("Analysis failed: " + err.message);
+        } finally {
+          singleBtn.disabled = false;
+        }
+      });
+
+      // Enter key on input
+      singleInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") singleBtn.click();
+      });
+
+      // Auto-test connection on load
+      window.addEventListener("load", () => {
+        console.log("🛡️ Fraud Detection Co-Pilot loaded");
+        console.log("📡 API endpoint:", API);
+        testBtn.click();
+      });
+    </script>
+  </body>
+</html>
