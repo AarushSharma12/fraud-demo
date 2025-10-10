@@ -271,6 +271,25 @@ def list_transactions():
     return {"total": len(TRANSACTIONS), "ids": list(TRANSACTIONS.keys())}
 
 
+@app.get("/data")
+def get_raw_data():
+    """Get raw transaction data as JSON"""
+    return {"transactions": [txn.dict() for txn in TRANSACTIONS.values()]}
+
+
+@app.get("/transaction/{txn_id}")
+def get_transaction_details(txn_id: str):
+    """Get detailed transaction data"""
+    if txn_id not in TRANSACTIONS:
+        raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
+    
+    txn = TRANSACTIONS[txn_id]
+    return {
+        "transaction": txn.dict(),
+        "analysis": analyze_transaction(txn).dict()
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

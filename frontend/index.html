@@ -266,6 +266,115 @@
       .threshold-status.fail {
         color: #da3633;
       }
+
+      .json-viewer {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 16px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .json-viewer.hidden {
+        display: none;
+      }
+
+      .json-key {
+        color: #58a6ff;
+      }
+
+      .json-string {
+        color: #a5d6ff;
+      }
+
+      .json-number {
+        color: #79c0ff;
+      }
+
+      .json-boolean {
+        color: #ff7b72;
+      }
+
+      .json-null {
+        color: #8b949e;
+      }
+
+      .transaction-details {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+
+      .transaction-details.hidden {
+        display: none;
+      }
+
+      .detail-section {
+        margin-bottom: 16px;
+      }
+
+      .detail-section h4 {
+        color: #58a6ff;
+        margin-bottom: 8px;
+        font-size: 14px;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 8px;
+      }
+
+      .detail-item {
+        background: #161b22;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #30363d;
+      }
+
+      .detail-label {
+        color: #8b949e;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      .detail-value {
+        color: #e6edf3;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .search-filter {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 16px;
+      }
+
+      .search-filter input {
+        margin-right: 12px;
+        min-width: 150px;
+      }
+
+      .search-filter select {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        color: #e6edf3;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        margin-right: 12px;
+      }
     </style>
   </head>
   <body>
@@ -306,6 +415,7 @@
             placeholder="Enter transaction ID (e.g., T001)"
           />
           <button id="singleBtn" class="secondary">Analyze Single</button>
+          <button id="jsonBtn" class="secondary">View Raw Data</button>
         </div>
       </div>
 
@@ -385,6 +495,24 @@
       <!-- Results Table -->
       <div class="card">
         <h2>📋 Recent Results (Last 20)</h2>
+        
+        <!-- Search and Filter -->
+        <div class="search-filter">
+          <input id="searchInput" type="text" placeholder="Search transaction ID..." />
+          <select id="decisionFilter">
+            <option value="">All Decisions</option>
+            <option value="FRAUD">Fraud</option>
+            <option value="LEGIT">Legitimate</option>
+            <option value="NEEDS_REVIEW">Needs Review</option>
+          </select>
+          <select id="labelFilter">
+            <option value="">All Labels</option>
+            <option value="FRAUD">True Fraud</option>
+            <option value="LEGIT">True Legitimate</option>
+          </select>
+          <button id="clearFilters" class="secondary">Clear Filters</button>
+        </div>
+
         <table>
           <thead>
             <tr>
@@ -404,6 +532,26 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Transaction Details -->
+      <div class="card">
+        <h2>🔍 Transaction Details</h2>
+        <div id="transactionDetails" class="transaction-details hidden">
+          <!-- Details will be populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- JSON Data Viewer -->
+      <div class="card">
+        <h2>📄 Raw Data Viewer</h2>
+        <div class="controls">
+          <button id="toggleJsonBtn" class="secondary">Toggle JSON View</button>
+          <button id="downloadJsonBtn" class="secondary">Download JSON</button>
+        </div>
+        <div id="jsonViewer" class="json-viewer hidden">
+          <!-- JSON will be populated by JavaScript -->
+        </div>
       </div>
 
       <!-- Demo Notes -->
@@ -442,8 +590,22 @@
       const batchBtn = document.getElementById("batchBtn");
       const singleBtn = document.getElementById("singleBtn");
       const singleInput = document.getElementById("singleInput");
+      const jsonBtn = document.getElementById("jsonBtn");
+      const toggleJsonBtn = document.getElementById("toggleJsonBtn");
+      const downloadJsonBtn = document.getElementById("downloadJsonBtn");
+      const jsonViewer = document.getElementById("jsonViewer");
+      const transactionDetails = document.getElementById("transactionDetails");
+      const searchInput = document.getElementById("searchInput");
+      const decisionFilter = document.getElementById("decisionFilter");
+      const labelFilter = document.getElementById("labelFilter");
+      const clearFilters = document.getElementById("clearFilters");
       const status = document.getElementById("status");
       const alert = document.getElementById("alert");
+
+      // State
+      let allResults = [];
+      let filteredResults = [];
+      let rawData = null;
 
       // Show alert
       function showAlert(message, type = "error") {
@@ -543,9 +705,193 @@
         }
       }
 
+      // JSON syntax highlighting
+      function highlightJson(json) {
+        return json
+          .replace(/(".*?")\s*:/g, '<span class="json-key">$1</span>:')
+          .replace(/:\s*(".*?")/g, ': <span class="json-string">$1</span>')
+          .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+          .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
+          .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+      }
+
+      // Load raw data
+      async function loadRawData() {
+        try {
+          const res = await fetch(`${API}/data`);
+          if (!res.ok) throw new Error("Failed to load data");
+          rawData = await res.json();
+          return rawData;
+        } catch (err) {
+          showAlert("Failed to load raw data: " + err.message);
+          return null;
+        }
+      }
+
+      // Show JSON viewer
+      async function showJsonViewer() {
+        if (!rawData) {
+          rawData = await loadRawData();
+        }
+        
+        if (rawData) {
+          const jsonString = JSON.stringify(rawData, null, 2);
+          jsonViewer.innerHTML = highlightJson(jsonString);
+          jsonViewer.classList.remove("hidden");
+          toggleJsonBtn.textContent = "Hide JSON View";
+        }
+      }
+
+      // Hide JSON viewer
+      function hideJsonViewer() {
+        jsonViewer.classList.add("hidden");
+        toggleJsonBtn.textContent = "Show JSON View";
+      }
+
+      // Download JSON
+      function downloadJson() {
+        if (!rawData) {
+          showAlert("No data to download");
+          return;
+        }
+        
+        const dataStr = JSON.stringify(rawData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'fraud-demo-data.json';
+        link.click();
+        URL.revokeObjectURL(url);
+        showAlert("JSON data downloaded!", "success");
+      }
+
+      // Show transaction details
+      async function showTransactionDetails(txnId) {
+        try {
+          const res = await fetch(`${API}/transaction/${txnId}`);
+          if (!res.ok) throw new Error("Transaction not found");
+          
+          const data = await res.json();
+          const txn = data.transaction;
+          const analysis = data.analysis;
+          
+          transactionDetails.innerHTML = `
+            <div class="detail-section">
+              <h4>Transaction Information</h4>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <div class="detail-label">ID</div>
+                  <div class="detail-value">${txn.id}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Amount</div>
+                  <div class="detail-value">$${txn.amount.toFixed(2)}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Merchant</div>
+                  <div class="detail-value">${txn.merchant}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Device ID</div>
+                  <div class="detail-value">${txn.device_id}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Geography</div>
+                  <div class="detail-value">${txn.geo}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Velocity (30d)</div>
+                  <div class="detail-value">${txn.velocity_30d}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Avg Amount (30d)</div>
+                  <div class="detail-value">$${txn.avg_amount_30d.toFixed(2)}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Merchant Known</div>
+                  <div class="detail-value">${txn.merchant_known ? 'Yes' : 'No'}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">True Label</div>
+                  <div class="detail-value">${txn.label}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="detail-section">
+              <h4>Analysis Results</h4>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <div class="detail-label">Decision</div>
+                  <div class="detail-value">${analysis.decision}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Confidence</div>
+                  <div class="detail-value">${(analysis.confidence * 100).toFixed(0)}%</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">Red Flags</div>
+                  <div class="detail-value">${analysis.flags.length > 0 ? analysis.flags.join(', ') : 'None'}</div>
+                </div>
+                <div class="detail-item" style="grid-column: 1 / -1;">
+                  <div class="detail-label">Explanation</div>
+                  <div class="detail-value">${analysis.explanation}</div>
+                </div>
+              </div>
+            </div>
+          `;
+          
+          transactionDetails.classList.remove("hidden");
+          
+          // Scroll to details
+          transactionDetails.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+          showAlert("Failed to load transaction details: " + err.message);
+        }
+      }
+
+      // Filter results
+      function filterResults() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const decisionFilterValue = decisionFilter.value;
+        const labelFilterValue = labelFilter.value;
+        
+        filteredResults = allResults.filter(result => {
+          const matchesSearch = result.txn_id.toLowerCase().includes(searchTerm);
+          const matchesDecision = !decisionFilterValue || result.decision === decisionFilterValue;
+          const matchesLabel = !labelFilterValue || result.true_label === labelFilterValue;
+          
+          return matchesSearch && matchesDecision && matchesLabel;
+        });
+        
+        updateResultsTable(filteredResults);
+      }
+
+      // Clear filters
+      function clearAllFilters() {
+        searchInput.value = '';
+        decisionFilter.value = '';
+        labelFilter.value = '';
+        filteredResults = [...allResults];
+        updateResultsTable(filteredResults);
+      }
+
       // Update results table
-      function updateResults(results) {
+      function updateResultsTable(results) {
         const tbody = document.getElementById("results");
+        
+        if (results.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; color: #8b949e">
+                No results match the current filters.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
         tbody.innerHTML = results
           .map((r) => {
             const decisionBadge =
@@ -570,7 +916,7 @@
 
             return `
           <tr>
-            <td>${r.txn_id}</td>
+            <td><a href="#" onclick="showTransactionDetails('${r.txn_id}'); return false;" style="color: #58a6ff; text-decoration: none;">${r.txn_id}</a></td>
             <td><span class="badge badge-${decisionBadge}">${
               r.decision
             }</span></td>
@@ -582,6 +928,13 @@
         `;
           })
           .join("");
+      }
+
+      // Update results (legacy function for compatibility)
+      function updateResults(results) {
+        allResults = [...results];
+        filteredResults = [...results];
+        updateResultsTable(results);
       }
 
       // Run batch
@@ -650,6 +1003,31 @@
       singleInput.addEventListener("keypress", (e) => {
         if (e.key === "Enter") singleBtn.click();
       });
+
+      // JSON viewer button
+      jsonBtn.addEventListener("click", () => {
+        showJsonViewer();
+      });
+
+      // Toggle JSON viewer
+      toggleJsonBtn.addEventListener("click", () => {
+        if (jsonViewer.classList.contains("hidden")) {
+          showJsonViewer();
+        } else {
+          hideJsonViewer();
+        }
+      });
+
+      // Download JSON
+      downloadJsonBtn.addEventListener("click", () => {
+        downloadJson();
+      });
+
+      // Search and filter event listeners
+      searchInput.addEventListener("input", filterResults);
+      decisionFilter.addEventListener("change", filterResults);
+      labelFilter.addEventListener("change", filterResults);
+      clearFilters.addEventListener("click", clearAllFilters);
 
       // Auto-test connection on load
       window.addEventListener("load", () => {
