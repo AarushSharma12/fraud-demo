@@ -4,6 +4,10 @@
 **Week**: 3 - Demo #1  
 **Date**: October 2025
 
+## 🆕 NEW: Reinforcement Learning Integration
+
+This demo now includes a **Reinforcement Learning (RL) fraud detection system** alongside the original rule-based approach! The RL model uses PPO (Proximal Policy Optimization) to learn optimal fraud detection strategies through trial and error.
+
 ## 🎯 Hypothesis
 
 AI agent reduces fraud case-review time by ≥30% while maintaining:
@@ -32,6 +36,33 @@ chmod +x start.sh
 
 Then open: http://localhost:8080
 
+### 🧠 Testing the RL System
+
+```bash
+# Install dependencies
+cd backend
+pip install -r requirements.txt
+
+# Start the server
+python main.py
+
+# In another terminal, test the RL system
+python test_rl.py
+```
+
+### 📊 Generating New Data
+
+```bash
+# Generate a new 1000-transaction dataset
+python generate_data.py
+
+# This creates realistic fraud patterns with:
+# - 818 legitimate transactions (81.8%)
+# - 182 fraud cases (18.2%)
+# - Complex merchant categories and geographic patterns
+# - Realistic velocity and amount distributions
+```
+
 ## 📊 What This Demonstrates
 
 ### 1. Defense Posture (PROTECT)
@@ -43,8 +74,8 @@ Then open: http://localhost:8080
 
 ### 2. Fraud Detection Engine
 
+**Rule-Based System:**
 - **Red Flags Detected**:
-
   - `large_amount`: Transaction > 5x average or > $800
   - `new_merchant`: Unknown/unverified merchant
   - `velocity_spike`: Low velocity + large transaction
@@ -55,6 +86,17 @@ Then open: http://localhost:8080
   - ≥2 flags → FRAUD (high confidence)
   - 0 flags + established pattern → LEGIT
   - Uncertain → NEEDS_REVIEW (human analyst)
+
+**NEW: Reinforcement Learning System:**
+- **Environment**: Custom Gymnasium environment with 7 normalized features
+- **Agent**: PPO (Proximal Policy Optimization) with MLP policy
+- **Actions**: 0=FRAUD, 1=LEGIT, 2=NEEDS_REVIEW
+- **Reward Function**: 
+  - +10 for correct fraud detection
+  - +1 for correct legitimate classification
+  - -20 for missing fraud (false negative)
+  - -5 for false fraud alerts (false positive)
+- **Training**: Learns optimal decision strategies through trial and error
 
 ### 3. Performance Metrics
 
@@ -153,23 +195,32 @@ fraud-demo/
 
 ### Fraud Patterns in Dataset
 
-- **LEGIT (25 transactions)**:
-  - Known merchants (Starbucks, Amazon, Netflix)
+- **LEGIT (818 transactions, 81.8%)**:
+  - Known merchants (Starbucks, Amazon, Netflix, Uber, etc.)
   - US geography
-  - Normal amounts ($10-$300)
+  - Normal amounts ($5-$500)
   - High velocity (5-30 txns/month)
-- **FRAUD (25 transactions)**:
-  - Suspicious merchants (CryptoExchangeX, OnlineCasino777)
-  - Foreign geography (RU, CN, NG)
-  - Large amounts ($800-$5000)
-  - Low velocity (0-3 txns/month)
+- **FRAUD (182 transactions, 18.2%)**:
+  - Suspicious merchants (CryptoExchangeX, OnlineCasino777, DarkWebMarket)
+  - Foreign geography (RU, CN, NG, BR, MX)
+  - Large amounts ($200-$50,000)
+  - Low velocity (0-5 txns/month)
+  - Complex patterns mixing legitimate and fraudulent behaviors
 
 ### API Endpoints
 
+**Original Rule-Based System:**
 - `GET /` - Health check
 - `POST /analyze?txn_id={id}` - Analyze single transaction
 - `POST /batch` - Process all 50 transactions
 - `GET /transactions` - List available IDs
+
+**NEW: Reinforcement Learning System:**
+- `POST /rl/train?timesteps={n}` - Train RL model
+- `POST /rl/analyze/{txn_id}` - Analyze with RL model
+- `POST /rl/batch` - Batch analysis with RL
+- `GET /rl/status` - Check RL model status
+- `POST /compare/{txn_id}` - Compare rule-based vs RL predictions
 
 ## 📈 Success Metrics
 
@@ -180,17 +231,18 @@ The demo achieves:
 - ✅ **Refusal**: ~12% (target ≤15%)
 - ✅ **Latency**: <50ms/txn (target ≤2s)
 - ✅ **Setup Time**: 30 seconds
-- ✅ **Code Size**: ~600 lines total
+- ✅ **Code Size**: ~700 lines total
+- ✅ **Dataset Size**: 1000 transactions (18.2% fraud rate)
 
 ## 🔄 Next Steps (Demo #2)
 
-1. **LLM Integration**:
+1. **Enhanced RL Features**:
+   - Multi-agent RL for different fraud types
+   - Online learning with continuous updates
+   - Ensemble methods combining RL + rule-based
+2. **LLM Integration**:
    - Replace rules with Claude/GPT-4
-   - Compare deterministic vs. LLM performance
-2. **Enhanced Metrics**:
-   - Latency percentiles (P50, P95, P99)
-   - Cost per transaction
-   - Model confidence distribution
+   - Compare RL vs LLM vs rule-based performance
 3. **Advanced Features**:
    - Graph-based fraud networks
    - Temporal pattern analysis
