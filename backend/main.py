@@ -306,6 +306,9 @@ with open("data.json", "r") as f:
 # Initialize RL model manager
 rl_manager = RLModelManager(TRANSACTIONS)
 
+# Persist last batch for KPI refresh
+LAST_BATCH: List[CaseResult] | None = None
+
 # ============ GUARDRAILS ============
 
 
@@ -320,6 +323,46 @@ def mask_pii(text: str) -> str:
     # Mask phone numbers
     text = re.sub(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b", "[REDACTED_PHONE]", text)
     return text
+
+
+def iso_utc():
+    """Get current UTC timestamp in ISO format"""
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def mask_token(s: str, keep_tail: int = 2) -> str:
+    """Mask token keeping last few characters"""
+    if not s or len(s) <= keep_tail:
+        return "***"
+    return s[:-keep_tail].replace(s[:-keep_tail], "*" * max(3, len(s)-keep_tail)) + s[-keep_tail:]
+
+
+def masked_transaction_dict(txn: Transaction) -> dict:
+    """Return transaction dict with masked PII"""
+    d = txn.dict()
+    # Mask device_id (keeping last 2 characters)
+    d["device_id"] = mask_token(d["device_id"])
+    return d
+
+
+def build_provenance(txn: Transaction, decision: FraudDecision) -> dict:
+    """Build provenance and audit trail for a transaction decision"""
+    return {
+        "txn_id": txn.id,
+        "model_version": "rules-v1",
+        "flags": decision.flags,
+        "recommended_action": decision.decision,
+        "pii_masked": True,
+        "explanation": {
+            "summary": decision.explanation,
+            "red_flags": decision.flags
+        },
+        "steps": [
+            {"type": "ingest", "ref": "loader:data.json", "at": iso_utc()},
+            {"type": "featurize", "ref": "rules-v1", "at": iso_utc()},
+            {"type": "agent", "ref": "fraud-copilot", "at": iso_utc()}
+        ]
+    }
 
 
 def validate_transaction(txn: Transaction) -> tuple[bool, str]:
@@ -473,6 +516,7 @@ def analyze_single(txn_id: str) -> dict:
 @app.post("/batch")
 def analyze_batch() -> BatchResult:
     """Analyze all transactions"""
+    global LAST_BATCH
     results = []
 
     for txn_id, txn in TRANSACTIONS.items():
@@ -500,11 +544,31 @@ def analyze_batch() -> BatchResult:
             )
         )
 
+    LAST_BATCH = results[:]  # Persist full results for KPI refresh
     metrics = calculate_metrics(results)
 
     return BatchResult(
         total=len(results), results=results[-20:], metrics=metrics  # Last 20 for UI
     )
+
+
+@app.get("/metrics")
+def get_metrics():
+    """Get metrics from last batch or compute over all transactions"""
+    global LAST_BATCH
+    if LAST_BATCH:
+        return calculate_metrics(LAST_BATCH)
+    
+    # Fallback: compute over all transactions
+    temp: List[CaseResult] = []
+    for txn in TRANSACTIONS.values():
+        dec = analyze_transaction(txn)
+        temp.append(CaseResult(
+            txn_id=txn.id, decision=dec.decision,
+            confidence=dec.confidence, flags=dec.flags,
+            true_label=txn.label
+        ))
+    return calculate_metrics(temp)
 
 
 @app.get("/transactions")
@@ -513,10 +577,23 @@ def list_transactions():
     return {"total": len(TRANSACTIONS), "ids": list(TRANSACTIONS.keys())}
 
 
+@app.get("/provenance/{txn_id}")
+def provenance(txn_id: str):
+    """Get provenance and audit trail for a transaction"""
+    if txn_id not in TRANSACTIONS:
+        raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
+    txn = TRANSACTIONS[txn_id]
+    dec = analyze_transaction(txn)
+    prov = build_provenance(txn, dec)
+    # Ensure explanation is masked
+    prov["explanation"]["summary"] = mask_pii(prov["explanation"]["summary"])
+    return prov
+
+
 @app.get("/data")
 def get_raw_data():
     """Get raw transaction data as JSON"""
-    return {"transactions": [txn.dict() for txn in TRANSACTIONS.values()]}
+    return {"transactions": [masked_transaction_dict(t) for t in TRANSACTIONS.values()]}
 
 
 @app.get("/transaction/{txn_id}")
@@ -527,7 +604,7 @@ def get_transaction_details(txn_id: str):
     
     txn = TRANSACTIONS[txn_id]
     return {
-        "transaction": txn.dict(),
+        "transaction": masked_transaction_dict(txn),
         "analysis": analyze_transaction(txn).dict()
     }
 

@@ -415,6 +415,7 @@
             placeholder="Enter transaction ID (e.g., T001)"
           />
           <button id="singleBtn" class="secondary">Analyze Single</button>
+          <button id="refreshKpisBtn" class="secondary">Refresh KPIs</button>
           <button id="jsonBtn" class="secondary">View Raw Data</button>
         </div>
       </div>
@@ -590,6 +591,7 @@
       const batchBtn = document.getElementById("batchBtn");
       const singleBtn = document.getElementById("singleBtn");
       const singleInput = document.getElementById("singleInput");
+      const refreshKpisBtn = document.getElementById("refreshKpisBtn");
       const jsonBtn = document.getElementById("jsonBtn");
       const toggleJsonBtn = document.getElementById("toggleJsonBtn");
       const downloadJsonBtn = document.getElementById("downloadJsonBtn");
@@ -614,6 +616,57 @@
         setTimeout(() => {
           alert.className = "alert";
         }, 5000);
+      }
+
+      // Refresh KPIs from /metrics endpoint
+      async function refreshKpis() {
+        try {
+          const res = await fetch(`${API}/metrics`);
+          if (!res.ok) return;
+          const m = await res.json();
+          updateMetrics(m);
+        } catch(e) { 
+          // Silent fail - no-op 
+        }
+      }
+
+      // Load provenance for a transaction
+      async function loadProvenance(id) {
+        try {
+          const res = await fetch(`${API}/provenance/${id}`);
+          if (!res.ok) { 
+            showAlert("Provenance unavailable"); 
+            return; 
+          }
+          const p = await res.json();
+          
+          const provenanceSection = document.getElementById("provenanceSection");
+          provenanceSection.innerHTML = `
+            <div style="margin-bottom: 12px;">
+              <strong>Model Version:</strong> ${p.model_version}
+            </div>
+            <div style="margin-bottom: 12px;">
+              <strong>Recommended Action:</strong> 
+              <span class="badge badge-${p.recommended_action === 'FRAUD' ? 'fraud' : p.recommended_action === 'LEGIT' ? 'legit' : 'review'}">${p.recommended_action}</span>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <strong>Red Flags:</strong> 
+              ${p.flags.length > 0 ? p.flags.map(f => `<span class="flag">${f}</span>`).join(' ') : 'None'}
+            </div>
+            <div style="margin-bottom: 12px;">
+              <strong>Summary:</strong> ${p.explanation.summary}
+            </div>
+            <div>
+              <strong>Processing Steps:</strong>
+              <ul style="margin-top: 8px; margin-left: 20px;">
+                ${p.steps.map(step => `<li><strong>${step.type}</strong> - ${step.ref} (${step.at})</li>`).join('')}
+              </ul>
+            </div>
+          `;
+          provenanceSection.classList.remove("hidden");
+        } catch (err) {
+          showAlert("Failed to load provenance: " + err.message);
+        }
       }
 
       // Update status
@@ -840,9 +893,21 @@
                 </div>
               </div>
             </div>
+            
+            <div class="detail-section">
+              <h4>Audit & Provenance</h4>
+              <button id="viewProvenanceBtn" class="secondary" style="margin-bottom: 12px;">View Provenance</button>
+              <div id="provenanceSection" class="transaction-details hidden" style="background: #161b22; padding: 12px; border-radius: 6px; border: 1px solid #30363d;">
+                <!-- Provenance content will be populated here -->
+              </div>
+            </div>
           `;
           
           transactionDetails.classList.remove("hidden");
+          
+          // Set up provenance button event listener
+          const viewProvenanceBtn = document.getElementById("viewProvenanceBtn");
+          viewProvenanceBtn.onclick = () => loadProvenance(txnId);
           
           // Scroll to details
           transactionDetails.scrollIntoView({ behavior: 'smooth' });
@@ -992,6 +1057,9 @@
             `✓ Analyzed ${txnId}: ${data.decision}${flagsText}`,
             "success"
           );
+          
+          // Refresh KPIs after single analysis
+          await refreshKpis();
         } catch (err) {
           showAlert("Analysis failed: " + err.message);
         } finally {
@@ -1002,6 +1070,12 @@
       // Enter key on input
       singleInput.addEventListener("keypress", (e) => {
         if (e.key === "Enter") singleBtn.click();
+      });
+
+      // Refresh KPIs button
+      refreshKpisBtn.addEventListener("click", () => {
+        refreshKpis();
+        showAlert("KPIs refreshed!", "success");
       });
 
       // JSON viewer button
@@ -1034,6 +1108,7 @@
         console.log("🛡️ Fraud Detection Co-Pilot loaded");
         console.log("📡 API endpoint:", API);
         testBtn.click();
+        setTimeout(refreshKpis, 400); // Small delay after health check
       });
     </script>
   </body>

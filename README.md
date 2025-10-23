@@ -214,6 +214,8 @@ fraud-demo/
 - `POST /analyze?txn_id={id}` - Analyze single transaction
 - `POST /batch` - Process all 50 transactions
 - `GET /transactions` - List available IDs
+- `GET /metrics` - Returns precision/recall/refusal and confusion matrix
+- `GET /provenance/{txn_id}` - Returns explanation + steps (PII masked)
 
 **NEW: Reinforcement Learning System:**
 - `POST /rl/train?timesteps={n}` - Train RL model
@@ -221,6 +223,10 @@ fraud-demo/
 - `POST /rl/batch` - Batch analysis with RL
 - `GET /rl/status` - Check RL model status
 - `POST /compare/{txn_id}` - Compare rule-based vs RL predictions
+
+## 🔒 Privacy & Security
+
+**Privacy Note:** All serialized responses mask `device_id`; raw data on disk is synthetic and contains no real PII. The system implements comprehensive PII masking for all API responses while preserving data utility for fraud detection analysis.
 
 ## 📈 Success Metrics
 
