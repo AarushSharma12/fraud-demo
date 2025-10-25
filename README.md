@@ -1,6 +1,8 @@
 # Fraud Detection Co-Pilot - INFO 492
 
-**Team**: Finance Industry (PROTECT Posture)  
+**Team**: Aarush, Mike, Nausheer  
+**Industry**: Finance  
+**Posture**: Protect  
 
 ---
 
@@ -20,14 +22,21 @@
 12. [API Endpoints](#api-endpoints)
 13. [Performance Metrics](#-success-metrics)
 14. [Class Feedback & Actions](#-class-feedback--action-items)
-15. [Next Steps](#-next-steps-demo-2)
-16. [Privacy & Security](#-privacy--security)
-17. [Troubleshooting](#️-troubleshooting)
-18. [References](#-references)
+15. [Transcripts from stakeholder interviews](#-transcripts-from-stakeholder-interviews)
+16. [Next Steps](#-next-steps-demo-2)
+17. [Privacy & Security](#-privacy--security)
 
 ---
 
 ## Overview
+
+### The Dynamic Challenge of Fraud
+
+Financial fraud is a dynamic "cat-and-mouse" game where attackers constantly evolve, rendering static rule-based systems obsolete. Our team's central hypothesis is that an AI agent using Reinforcement Learning (RL) can overcome these static constraints.
+
+Our Week 2 hypothesis proposed an RL agent could continuously improve fraud detection by learning from outcomes, leading to faster, more accurate, and safer decisions. We track KPIs like precision, recall, and F1-scores, alongside latency and stability, all within a strict governance framework requiring human-in-the-loop approval and action simulation.
+
+This analysis examines our hypothesis's validation through two experiments and crucial stakeholder feedback. While results validate our model's adaptability and accuracy, feedback has expanded our definition of a "safe" system. Our hypothesis is partially validated, with clear directives to refine governance, cost-sensitivity, and human-factors engineering.
 
 ## 🆕 NEW: Reinforcement Learning Integration
 
@@ -35,12 +44,59 @@ This demo now includes a **Reinforcement Learning (RL) fraud detection system** 
 
 ## 🎯 Hypothesis
 
-AI agent reduces fraud case-review time by ≥30% while maintaining:
+Our central hypothesis is that an AI agent using Reinforcement Learning (RL) can continuously improve fraud detection by learning from outcomes, leading to:
 
+- **Faster** decisions (reduced case-review time by ≥30%)
+- **More accurate** detection (improved precision and recall)
+- **Continuously improve** through adaptive learning
+- **Safer** decisions through governance and human-in-the-loop collaboration
+
+**Quantitative Targets:**
 - **Recall** ≥ 0.80 (catch 80%+ of actual fraud)
 - **Precision** ≥ 0.75 (75%+ fraud alerts are correct)
 - **Refusal Rate** ≤ 15% (escalate ≤15% to humans)
 - **Latency** ≤ 2s per transaction
+
+## 🧪 Experiment 1: Establishing the Static Baseline
+
+Our first experiment's objective was to set a quantitative baseline without adaptive learning, serving as a control. We designed a traditional, rule-based system: triggering ≥2 flags (e.g., large_amount, new_merchant) marked a transaction as "FRAUD," while zero flags meant "LEGIT." All other cases went to "Needs Review."
+
+**Results on 1,000-transaction dataset:**
+- **Recall**: 0.692 (caught 69.2% of actual fraud)
+- **Precision**: 0.634 (63.4% of fraud alerts were correct)
+- **False Positives**: 366 cases
+- **Refusal Rate**: 18.7%
+
+**Key Findings:**
+- The flag-based logic was "overly simplistic" for a complex landscape
+- Misclassified legitimate high-value or international transactions
+- Created high operational overhead and customer friction
+- Failed the "continuously improve" component by design
+- Proved why a new approach was necessary
+
+## 🧪 Experiment 2: Validating the RL-Driven Adaptive Model
+
+Experiment 2 tested our hypothesis by integrating a Proximal Policy Optimization (PPO) agent to see if learning from feedback could improve adaptability. We used an MLP policy and a business-weighted reward function:
+
+**Reward Structure:**
+- +10: Correct fraud detection
+- -20: Missing fraud (false negative)
+- -5: False alarm (false positive)
+- +2: Correct "Needs Review" escalations
+
+**Results on same dataset:**
+- **Precision**: 0.789 (+24% improvement)
+- **Recall**: 0.856 (+24% improvement)
+- **F1-Score**: 0.821 (+24% improvement)
+- **Accuracy**: +8% boost
+- **False Positives**: -28% reduction
+- **Manual Review Queue**: -31% smaller
+
+**Key Findings:**
+- RL agent learned complex, non-linear feature interactions
+- Reward structure effectively trained agent to "learn from outcomes"
+- Validated "faster" and "more accurate" components of hypothesis
+- **Limitations noted**: Slight latency increase (7ms to 11ms), reliance on feature engineering, MLP's "black box" nature
 
 ## 🚀 Quick Start
 
@@ -500,7 +556,7 @@ When LLM integration is implemented, we will compare:
 - **Cost**: API costs per transaction
 - **Consistency**: Same transaction classified consistently across runs
 
-**Target Models**: Claude 3.5 Sonnet, GPT-4o, Llama 3.1 70B
+**Target Models**: Claude 3.5 Sonnet, GPT-4o
 
 ---
 
@@ -541,11 +597,7 @@ The demo achieves:
 
 ## 📝 Class Feedback & Action Items
 
-### Feedback Summary (Demo #1 & #2)
-
-**Team 4 (Finance • Protect)** received strong marks for incorporating both student and stakeholder feedback:
-- **Student Mean Score**: 4.35/5.0
-- **Stakeholder Mean Score**: 4.65/5.0
+### Feedback Summary
 
 **Key Strengths Identified**:
 - ✅ Real-time KPI/metrics dashboard implementation
@@ -636,7 +688,7 @@ The demo achieves:
 
 ### Implementation Priority (Next 2 Weeks)
 
-**High Priority** (Demo #2 requirements):
+**High Priority**:
 1. Error Analysis view with pattern slicing
 2. Cost-aware threshold tuning interface
 3. Batch labeling for NEEDS_REVIEW cases
@@ -654,35 +706,88 @@ The demo achieves:
 
 ---
 
+## 📝 Reflection on Industry & Class Feedback: Redefining "Safer Decisions"
+
+A model that is "more accurate" is not necessarily "safer" in finance. The "safer decisions" component of our hypothesis was profoundly shaped by external feedback.
+
+### Fidelity Investments Stakeholder Feedback
+
+A stakeholder from Fidelity Investments emphasized practical governance: tracking key metrics ("precision, recall, refusal") and ensuring "auditable decisions and PII protections." This prompted a critical shift. We responded by building a /metrics endpoint, live KPI cards, a provenance modal for auditing, and PII masking. Demonstrating this audit trail validated the importance of traceable governance and encouraged us to get more granular feedback on operationalizing threshold tuning.
+
+**Key Stakeholder Requirements:**
+- **Tracking Metrics**: Keep track of precision, recall, and confusion counts. What cost of FP vs. FN is acceptable for this fraud type?
+- **Tune Threshold Patterns**: Adjust weights to balance recall and false positives for each fraud type.
+- **Make Decisions Auditable**: All alerts and data must be traceable and protected. Every alert should include features used, rule/LLM rationale, and model/version ID.
+
+### Class Feedback Integration
+
+Class feedback also reinforced this focus. Peers praised our real-time KPIs and provenance, but their best suggestions pushed us to refine the learning mechanism. They suggested "deeper error analysis" and "cost-aware reward shaping" (explicitly weighting FN loss vs. FP cost). This feedback offered a path to stronger validation, challenging us to evolve our "business-weighted" reward function into a more advanced "cost-sensitive" training regimen.
+
+**Class Feedback Themes:**
+- **Real-time KPIs & Measurement Clarity**: Keep live KPI cards; add fixed operating-point confusion matrix
+- **Error Analysis & Drilldowns**: Deepen error analysis, especially around refusals, false positives/negatives
+- **Cost-Aware Reward Shaping**: Formalize cost-sensitive training with explicit FN loss vs. FP operational cost
+- **Human-in-Loop Speed & Bias Control**: Speed up human review experience with batch labeling
+- **Provenance/Audit in the UI**: Keep provenance modal with model version, features/flags used, masked fields
+
+## 🧠 The Psychological Dimension: Governing the Human-AI System
+
+Our analysis of psychological factors provided nuanced validation for "safer decisions." A safe system must account for the human factors of its analyst users. Our design addresses this with clear KPIs and provenance explanations to mitigate "alert fatigue" and high cognitive load.
+
+**Human Factors Considerations:**
+- **Alert Fatigue Mitigation**: Clear KPIs and provenance explanations reduce cognitive load
+- **Anchoring Bias Prevention**: Plan to enable batch labeling and experiment with hiding model score until after analyst's initial judgment
+- **Mindset Evolution**: From "building more ML" to building governed, auditable AI
+
+**Critical Gap Identified:**
+Our "primitive" user model lacks "industry realism" by assuming a single user type. This is unrealistic and insecure. A safe system must reflect varied team responsibilities. Therefore, a key future task is implementing role-based access control (RBAC) to differentiate permissions for analysts, seniors, and governance officers, which is essential for a real-world, human-in-the-loop system.
+
+---
+
+## 📊 Conclusion
+
+At mid-quarter, our hypothesis is partially validated with a clear roadmap. The "faster" and "more accurate" tenets were confirmed by Experiment 2, where our RL agent outperformed the static system. The "continuously improve" tenet was also validated, as the agent learned complex patterns via its reward function.
+
+The "safer" component is the most complex. Feedback has taught us that safety is not just accuracy; it is a product of governance, provenance, cost-sensitive learning, and human-factors engineering. We acknowledge gaps remain in refusal rate calibration, precision stability, mature evaluation design for autonomous runs, and realistic user roles.
+
+**Validation Status:**
+- ✅ **Faster**: RL agent achieved target performance improvements
+- ✅ **More Accurate**: 24% improvement in precision, recall, and F1-score
+- ✅ **Continuously Improve**: Agent learned complex patterns through reward function
+- 🔄 **Safer**: Partially validated - requires governance, cost-sensitivity, and human-factors engineering
+
+**Remaining Gaps:**
+- Refusal rate calibration
+- Precision stability
+- Mature evaluation design for autonomous runs
+- Realistic user roles (RBAC implementation)
+
 ## 🔄 Next Steps (Demo #2)
 
-1. **Enhanced RL Features**:
-   - Multi-agent RL for different fraud types
-   - Online learning with continuous updates
-   - Ensemble methods combining RL + rule-based
-2. **LLM Integration**:
-   - Replace rules with Claude/GPT-4
-   - Compare RL vs LLM vs rule-based performance
-3. **Advanced Features**:
-   - Graph-based fraud networks
-   - Temporal pattern analysis
-   - Adversarial testing
-4. **Production Readiness**:
-   - Docker containerization
-   - Rate limiting
-   - Authentication/RBAC
-   - Real-time streaming
+Our plan for the second half directly addresses the identified gaps:
+
+### High Priority (Immediate)
+1. **Cost-Sensitive Training**: Implement configurable cost parameters and cost-benefit analysis dashboard
+2. **Shift-Robustness Tests**: Conduct comprehensive evaluation design for autonomous runs
+3. **Enhanced Labeling & Governance**: Implement batch labeling interface and bias reduction features
+4. **Full RBAC System**: Implement role-based access control for industry realism (analysts, seniors, governance officers)
+
+### Medium Priority
+5. **Error Analysis View**: Add pattern slicing and drilldown capabilities
+6. **Fixed Operating-Point Confusion Matrix**: Display refusal rate side-by-side with precision/recall
+7. **TAT Tracking Dashboard**: Monitor human review time-to-action metrics
+
+### Future Experiments
+8. **LLM Integration**: Replace rules with Claude/GPT-4, compare RL vs LLM vs rule-based performance
+9. **Advanced Features**: Graph-based fraud networks, temporal pattern analysis, adversarial testing
+10. **Production Readiness**: Docker containerization, rate limiting, real-time streaming
+
+**Critical Focus**: Moving from simple simulations to robust A/B testing with industry-realistic user roles and cost-aware governance.
 
 ## 📚 References
 
 - FastAPI: https://fastapi.tiangolo.com
 - Fraud Detection Patterns: ACFE Fraud Examiner's Manual
-- INFO 492 Course Materials
 - NIST Cybersecurity Framework
-
-## 👥 Team
-
-- Finance Industry Team
-- PROTECT Posture (Defensive AI)
 
 ---
