@@ -471,14 +471,15 @@
         <h2 class="login-title">🔐 YubiKey Login</h2>
         <div class="form-group">
           <label>YubiKey ID:</label>
-          <input type="text" id="yubikeyIdInput" placeholder="admin-yubikey-123" />
+          <input type="text" id="yubikeyIdInput" placeholder="admin | analyst | viewer" />
         </div>
         <div class="form-group">
-          <label>OTP Code:</label>
-          <input type="text" id="otpInput" placeholder="OTP will auto-generate" readonly />
+          <label>Security Key Code:</label>
+          <input type="text" id="otpInput" placeholder="Press Security Key to generate code" readonly />
         </div>
-        <div class="controls">
-          <button id="generateOtpBtn" style="width: 100%" class="secondary">Generate OTP & Login</button>
+        <div class="controls" style="display:flex; gap:8px;">
+          <button id="generateOtpBtn" class="secondary" style="flex:1;">Press Security Key</button>
+          <button id="loginSubmitBtn" style="flex:1;">Login</button>
         </div>
         <div style="margin-top: 16px; padding: 12px; background: #0d1117; border-radius: 6px; font-size: 12px; color: #8b949e;">
           <strong>Demo YubiKeys:</strong><br/>
@@ -691,11 +692,12 @@
               <th>Red Flags</th>
               <th>True Label</th>
               <th>Result</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="results">
             <tr>
-              <td colspan="6" style="text-align: center; color: #8b949e">
+              <td colspan="7" style="text-align: center; color: #8b949e">
                 No results yet. Run batch or analyze a single transaction.
               </td>
             </tr>
@@ -711,17 +713,7 @@
         </div>
       </div>
 
-      <!-- Human Review Queue (Admin/Analyst only) -->
-      <div class="card" id="reviewQueueCard" style="display: none;">
-        <h2>👤 Human Review Queue</h2>
-        <div class="controls">
-          <button id="refreshReviewBtn" class="secondary">Refresh Queue</button>
-          <span id="reviewCount" style="color: #8b949e;">0 cases pending review</span>
-        </div>
-        <div id="reviewQueueList" style="margin-top: 16px;">
-          <!-- Review cases will be populated here -->
-        </div>
-      </div>
+      
 
       <!-- RL Reward Weights Configuration (Admin only) -->
       <div class="card" id="rewardWeightsCard" style="display: none;">
@@ -796,10 +788,7 @@
       const refreshModelsBtn = document.getElementById("refreshModelsBtn");
       const trainModelBtn = document.getElementById("trainModelBtn");
       const modelsList = document.getElementById("modelsList");
-      const reviewQueueCard = document.getElementById("reviewQueueCard");
-      const reviewQueueList = document.getElementById("reviewQueueList");
-      const refreshReviewBtn = document.getElementById("refreshReviewBtn");
-      const reviewCount = document.getElementById("reviewCount");
+      
       const rewardWeightsCard = document.getElementById("rewardWeightsCard");
       const rewardWeightsForm = document.getElementById("rewardWeightsForm");
       const saveRewardWeightsBtn = document.getElementById("saveRewardWeightsBtn");
@@ -812,6 +801,7 @@
       const analysisMethod = document.getElementById("analysisMethod");
       const otpInput = document.getElementById("otpInput");
       const generateOtpBtn = document.getElementById("generateOtpBtn");
+      const loginSubmitBtn = document.getElementById("loginSubmitBtn");
 
       // State
       let allResults = [];
@@ -1056,6 +1046,21 @@
               </div>
             </div>
             
+            ${
+              (currentSession && (currentSession.role === 'admin' || currentSession.role === 'analyst') && analysis.decision === 'NEEDS_REVIEW')
+                ? `
+            <div class="detail-section">
+              <h4>Review Actions</h4>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button style="background:#da3633;" onclick="makeDecisionInline('${txn.id}','FRAUD')">Mark as FRAUD</button>
+                <button style="background:#2ea043;" onclick="makeDecisionInline('${txn.id}','LEGIT')">Mark as LEGIT</button>
+              </div>
+              <div style="margin-top:8px; color:#8b949e; font-size:12px;">Actions visible to admin/analyst for NEEDS_REVIEW cases</div>
+            </div>
+                `
+                : ''
+            }
+
             <div class="detail-section">
               <h4>Audit & Provenance</h4>
               <button id="viewProvenanceBtn" class="secondary" style="margin-bottom: 12px;">View Provenance</button>
@@ -1160,6 +1165,14 @@
               r.flags.map((f) => `<span class="flag">${f}</span>`).join(" ") ||
               "-";
 
+            const canReview = currentSession && (currentSession.role === 'admin' || currentSession.role === 'analyst');
+            const actionsCell = (r.decision === 'NEEDS_REVIEW' && canReview)
+              ? `<div style=\"display:flex; gap:6px; flex-wrap:wrap;\">`
+                + `<button style=\"background:#da3633; padding:6px 10px;\" onclick=\"makeDecisionInline('${r.txn_id}','FRAUD')\">Mark FRAUD</button>`
+                + `<button style=\"background:#2ea043; padding:6px 10px;\" onclick=\"makeDecisionInline('${r.txn_id}','LEGIT')\">Mark LEGIT</button>`
+                + `</div>`
+              : '-';
+
             return `
           <tr>
             <td><a href="#" onclick="showTransactionDetails('${r.txn_id}'); return false;" style="color: #58a6ff; text-decoration: none;">${r.txn_id}</a></td>
@@ -1170,6 +1183,7 @@
             <td>${flags}</td>
             <td>${r.true_label}</td>
             <td>${resultIcon}</td>
+            <td>${actionsCell}</td>
           </tr>
         `;
           })
@@ -1301,71 +1315,88 @@
 
       // ============ AUTHENTICATION FUNCTIONS ============
       
-      async function autoLogin() {
-        const yubikey_id = yubikeyIdInput.value.trim();
-        
-        if (!yubikey_id) {
-          showAlert("Please enter your YubiKey ID", "error");
-          return;
+      // Map short role keywords to demo YubiKey IDs
+      function mapYubiKeyId(input) {
+        const v = (input || '').trim().toLowerCase();
+        if (v === 'admin') return 'admin-yubikey-123';
+        if (v === 'analyst') return 'analyst-yubikey-456';
+        if (v === 'viewer') return 'viewer-yubikey-789';
+        return input; // assume full ID entered
+      }
+
+      function onLoginSuccess(session) {
+        currentSession = session;
+        sessionStorage.setItem('session_token', session.session_token);
+        sessionStorage.setItem('user_info', JSON.stringify(session));
+        loginModal.classList.remove('active');
+        mainContent.style.display = 'block';
+        updateUserInfo(session);
+        showAlert(`✓ Logged in as ${session.name} (${session.role})`, 'success');
+        applyRoleRestrictions(session);
+        if (session.role !== 'admin') {
+          loadModels().then(() => { modelsCard.style.display = 'block'; });
+        } else {
+          adminTrainingCard.style.display = 'block';
+          rewardWeightsCard.style.display = 'block';
         }
-        
+      }
+
+      // Step 1: Press Security Key → request OTP and fill the code
+      async function requestOtp() {
+        const rawId = yubikeyIdInput.value.trim();
+        if (!rawId) { showAlert('Please enter your YubiKey ID', 'error'); return; }
+        const yubikey_id = mapYubiKeyId(rawId);
         try {
-          // Generate OTP and auto-login
           generateOtpBtn.disabled = true;
-          generateOtpBtn.textContent = "Generating OTP...";
-          
-          const response = await fetch(`${API}/auth/yubikey/auto-login`, {
+          generateOtpBtn.textContent = 'Generating...';
+          const response = await fetch(`${API}/auth/yubikey/otp/request`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ yubikey_id })
           });
-          
+          if (!response.ok) throw new Error('Failed to request OTP');
+          const data = await response.json();
+          // For demo, backend returns otp_demo; populate the field
+          if (data.otp_demo) {
+            otpInput.value = data.otp_demo;
+            showAlert('Security key code generated. Click Login to continue.', 'success');
+          } else {
+            showAlert('OTP requested. Enter the code displayed on your device.', 'success');
+          }
+        } catch (err) {
+          showAlert('OTP request failed: ' + err.message);
+        } finally {
+          generateOtpBtn.disabled = false;
+          generateOtpBtn.textContent = 'Press Security Key';
+        }
+      }
+
+      // Step 2: Login with YubiKey ID + OTP
+      async function loginWithYubiKey() {
+        const rawId = yubikeyIdInput.value.trim();
+        const otp = otpInput.value.trim();
+        if (!rawId) { showAlert('Please enter your YubiKey ID', 'error'); return; }
+        if (!otp) { showAlert('Press Security Key to generate a code first', 'error'); return; }
+        const yubikey_id = mapYubiKeyId(rawId);
+        try {
+          loginSubmitBtn.disabled = true;
+          loginSubmitBtn.textContent = 'Logging in...';
+          const response = await fetch(`${API}/auth/yubikey/otp/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yubikey_id, otp })
+          });
           if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'Login failed');
           }
-          
           const session = await response.json();
-          currentSession = session;
-          
-          // Store session token
-          sessionStorage.setItem('session_token', session.session_token);
-          sessionStorage.setItem('user_info', JSON.stringify(session));
-          
-          // Hide modal and show main content
-          loginModal.classList.remove('active');
-          mainContent.style.display = 'block';
-          
-          // Update UI based on role
-          updateUserInfo(session);
-          showAlert(`✓ Logged in as ${session.name} (${session.role})`, "success");
-          
-          // Apply role-based restrictions
-          applyRoleRestrictions(session);
-          
-          // Log for debugging
-          console.log('Role:', session.role);
-          console.log('Review queue card display:', getComputedStyle(reviewQueueCard).display);
-          console.log('Reward weights card display:', getComputedStyle(rewardWeightsCard).display);
-          
-          // Refresh models if not admin
-          if (session.role !== 'admin') {
-            await loadModels();
-            modelsCard.style.display = 'block';
-          } else {
-            // Ensure cards are visible for admin
-            adminTrainingCard.style.display = 'block';
-            reviewQueueCard.style.display = 'block';
-            rewardWeightsCard.style.display = 'block';
-          }
-          
-          generateOtpBtn.disabled = false;
-          generateOtpBtn.textContent = "Generate OTP & Login";
-          
+          onLoginSuccess(session);
         } catch (err) {
-          showAlert("Login failed: " + err.message);
-          generateOtpBtn.disabled = false;
-          generateOtpBtn.textContent = "Generate OTP & Login";
+          showAlert('Login failed: ' + err.message);
+        } finally {
+          loginSubmitBtn.disabled = false;
+          loginSubmitBtn.textContent = 'Login';
         }
       }
       
@@ -1391,58 +1422,15 @@
         }
       }
       
-      // ============ REVIEW QUEUE FUNCTIONS ============
-      
-      async function loadReviewQueue() {
+      // ============ INLINE REVIEW ACTIONS ============
+      async function makeDecisionInline(txnId, decision) {
         try {
+          if (!currentSession || (currentSession.role !== 'admin' && currentSession.role !== 'analyst')) {
+            showAlert('Only admin/analyst can make review decisions', 'error');
+            return;
+          }
           const token = sessionStorage.getItem('session_token');
-          const response = await fetch(`${API}/review/queue`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          
-          if (!response.ok) throw new Error('Failed to load review queue');
-          
-          const cases = await response.json();
-          reviewCount.textContent = `${cases.length} cases pending review`;
-          
-          displayReviewQueue(cases);
-        } catch (err) {
-          showAlert('Failed to load review queue: ' + err.message);
-        }
-      }
-      
-      function displayReviewQueue(cases) {
-        if (cases.length === 0) {
-          reviewQueueList.innerHTML = '<div style="color: #8b949e; padding: 20px; text-align: center;">No cases pending review</div>';
-          return;
-        }
-        
-        reviewQueueList.innerHTML = cases.map(case_data => `
-          <div class="card" style="margin-bottom: 12px; padding: 16px; border-left: 4px solid #9e6a03;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-              <div style="flex: 1;">
-                <h3 style="color: #58a6ff; margin-bottom: 8px;">${case_data.txn_id}</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 12px;">
-                  <div><strong>Confidence:</strong> ${(case_data.confidence * 100).toFixed(0)}%</div>
-                  <div><strong>True Label:</strong> ${case_data.true_label}</div>
-                  <div><strong>Flags:</strong> ${case_data.flags.join(', ') || 'None'}</div>
-                </div>
-                <textarea id="notes_${case_data.txn_id}" placeholder="Review notes..." style="width: 100%; min-height: 60px; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;"></textarea>
-              </div>
-              <div style="display: flex; gap: 8px; flex-direction: column;">
-                <button onclick="makeDecision('${case_data.txn_id}', 'FRAUD', '${case_data.txn_id}')" style="background: #da3633; padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: 600;">Mark as FRAUD</button>
-                <button onclick="makeDecision('${case_data.txn_id}', 'LEGIT', '${case_data.txn_id}')" style="background: #2ea043; padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: 600;">Mark as LEGIT</button>
-              </div>
-            </div>
-          </div>
-        `).join('');
-      }
-      
-      async function makeDecision(txnId, decision, notesId) {
-        try {
-          const token = sessionStorage.getItem('session_token');
-          const notes = document.getElementById(notesId).value || '';
-          
+          const notes = prompt(`Optional notes for ${txnId} (${decision}):`, '') || '';
           const response = await fetch(`${API}/review/update`, {
             method: 'POST',
             headers: { 
@@ -1455,14 +1443,15 @@
               reviewer_notes: notes
             })
           });
-          
           if (!response.ok) throw new Error('Failed to update decision');
-          
-          const data = await response.json();
-          showAlert(`✓ Decision updated: ${decision}. ${data.remaining_in_queue} cases remaining`, "success");
-          
-          // Reload queue
-          loadReviewQueue();
+          await response.json();
+          showAlert(`✓ ${txnId} marked ${decision}.`, 'success');
+          // Update local results state
+          allResults = allResults.map(r => r.txn_id === txnId ? { ...r, decision } : r);
+          filteredResults = filteredResults.map(r => r.txn_id === txnId ? { ...r, decision } : r);
+          updateResultsTable(filteredResults);
+          // Refresh KPIs after decision
+          await refreshKpis();
         } catch (err) {
           showAlert('Failed to update decision: ' + err.message);
         }
@@ -1554,7 +1543,6 @@
           singleBtn.style.display = 'none';
           singleInput.style.display = 'none';
           refreshKpisBtn.style.display = 'none';
-          reviewQueueCard.style.display = 'none';
           rewardWeightsCard.style.display = 'none';
           adminTrainingCard.style.display = 'none';
           
@@ -1567,24 +1555,19 @@
           singleBtn.style.display = 'inline-block';
           singleInput.style.display = 'inline-block';
           refreshKpisBtn.style.display = 'inline-block';
-          reviewQueueCard.style.display = 'block';
           rewardWeightsCard.style.display = 'none';
           adminTrainingCard.style.display = 'none';
           
-          // Load review queue
-          loadReviewQueue();
         } else if (role === 'admin') {
           // Admins have full access
           batchBtn.style.display = 'inline-block';
           singleBtn.style.display = 'inline-block';
           singleInput.style.display = 'inline-block';
           refreshKpisBtn.style.display = 'inline-block';
-          reviewQueueCard.style.display = 'block';
           rewardWeightsCard.style.display = 'block';
           adminTrainingCard.style.display = 'block';
           
-          // Load review queue and reward weights
-          loadReviewQueue();
+          // Load reward weights
           loadRewardWeights();
           
           console.log('Admin logged in - showing reward weights and review queue');
@@ -1670,8 +1653,9 @@
         `).join('');
       }
       
-      // Generate OTP and Auto-Login button
-      generateOtpBtn.addEventListener('click', autoLogin);
+      // Security Key flow: request OTP, then verify to login
+      generateOtpBtn.addEventListener('click', requestOtp);
+      loginSubmitBtn.addEventListener('click', loginWithYubiKey);
       
       // Press Enter to login
       yubikeyIdInput.addEventListener('keypress', (e) => {
@@ -1683,9 +1667,6 @@
       
       // Refresh models
       refreshModelsBtn.addEventListener('click', loadModels);
-      
-      // Refresh review queue
-      refreshReviewBtn.addEventListener('click', loadReviewQueue);
       
       // Save/Reset reward weights (admin only)
       saveRewardWeightsBtn.addEventListener('click', saveRewardWeights);
