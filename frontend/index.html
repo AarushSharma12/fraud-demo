@@ -24,6 +24,93 @@
         margin: 0 auto;
       }
 
+      /* Login Modal */
+      .login-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .login-modal.active {
+        display: flex;
+      }
+
+      .login-content {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 32px;
+        max-width: 400px;
+        width: 90%;
+      }
+
+      .login-title {
+        font-size: 24px;
+        margin-bottom: 20px;
+        color: #58a6ff;
+      }
+
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        color: #8b949e;
+        font-size: 14px;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 10px 12px;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        color: #e6edf3;
+        font-size: 14px;
+      }
+
+      .user-info {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px;
+        background: #0d1117;
+        border-radius: 8px;
+        margin-bottom: 16px;
+      }
+
+      .user-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .badge-admin {
+        background: #da3633;
+        color: white;
+      }
+
+      .badge-analyst {
+        background: #9e6a03;
+        color: white;
+      }
+
+      .badge-viewer {
+        background: #484f58;
+        color: white;
+      }
+
       header {
         background: #161b22;
         border: 1px solid #30363d;
@@ -378,16 +465,52 @@
     </style>
   </head>
   <body>
-    <div class="container">
+    <!-- Login Modal -->
+    <div id="loginModal" class="login-modal">
+      <div class="login-content">
+        <h2 class="login-title">🔐 YubiKey Login</h2>
+        <div class="form-group">
+          <label>YubiKey ID:</label>
+          <input type="text" id="yubikeyIdInput" placeholder="admin-yubikey-123" />
+        </div>
+        <div class="form-group">
+          <label>OTP Code:</label>
+          <input type="text" id="otpInput" placeholder="OTP will auto-generate" readonly />
+        </div>
+        <div class="controls">
+          <button id="generateOtpBtn" style="width: 100%" class="secondary">Generate OTP & Login</button>
+        </div>
+        <div style="margin-top: 16px; padding: 12px; background: #0d1117; border-radius: 6px; font-size: 12px; color: #8b949e;">
+          <strong>Demo YubiKeys:</strong><br/>
+          Admin: <code>admin-yubikey-123</code><br/>
+          Analyst: <code>analyst-yubikey-456</code><br/>
+          Viewer: <code>viewer-yubikey-789</code><br/><br/>
+          <strong>Note:</strong> Enter YubiKey ID and click "Generate OTP & Login" to auto-login
+        </div>
+      </div>
+    </div>
+
+    <div class="container" id="mainContent" style="display: none;">
       <header>
-        <h1>🛡️ Fraud Detection Co-Pilot</h1>
-        <p class="subtitle">
-          INFO 492 - Finance Industry (PROTECT) - Week 3 Demo #1
-        </p>
-        <p class="subtitle" style="margin-top: 4px">
-          <strong>Hypothesis:</strong> AI agent reduces case-review time by ≥30%
-          while maintaining recall ≥0.80 and precision ≥0.75
-        </p>
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+          <div>
+            <h1>🛡️ Fraud Detection Co-Pilot</h1>
+            <p class="subtitle">
+              INFO 492 - Finance Industry (PROTECT) - Week 3 Demo #1
+            </p>
+            <p class="subtitle" style="margin-top: 4px">
+              <strong>Hypothesis:</strong> AI agent reduces case-review time by ≥30%
+              while maintaining recall ≥0.80 and precision ≥0.75
+            </p>
+          </div>
+          <div class="user-info">
+            <div id="currentUserInfo" style="flex: 1;">
+              <div style="font-weight: 600;">Guest User</div>
+              <div style="font-size: 12px; color: #8b949e;">Not logged in</div>
+            </div>
+            <button id="logoutBtn" class="secondary">Logout</button>
+          </div>
+        </div>
       </header>
 
       <div id="alert" class="alert"></div>
@@ -404,11 +527,45 @@
         </div>
       </div>
 
+      <!-- RL Model Management (for non-admin roles) -->
+      <div class="card" id="modelsCard" style="display: none;">
+        <h2>🤖 Trained Models</h2>
+        <div class="controls">
+          <button id="refreshModelsBtn" class="secondary">Refresh Models List</button>
+        </div>
+        <div id="modelsList" style="margin-top: 16px;">
+          <!-- Models will be populated here -->
+        </div>
+      </div>
+
+      <!-- Admin Training Panel -->
+      <div class="card" id="adminTrainingCard" style="display: none;">
+        <h2>🎯 Train RL Model (Admin Only)</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          Train a new RL model with the current reward weights configuration
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; margin-bottom: 8px; color: #8b949e; font-size: 14px;">Training Steps:</label>
+          <input type="number" id="trainingStepsInput" value="20000" min="1000" step="1000" style="width: 200px; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;" />
+        </div>
+        <div class="controls">
+          <button id="startTrainingBtn" style="background: #238636;">Start Training</button>
+          <span id="trainingStatus" style="color: #8b949e;"></span>
+        </div>
+      </div>
+
       <!-- Controls -->
       <div class="card">
         <h2>🎯 Run Analysis</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          <strong>Analysis Method:</strong>
+          <select id="analysisMethod" style="margin-left: 8px; padding: 6px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;">
+            <option value="rule">Rule-Based (Default)</option>
+            <option value="rl">RL Model (Trained)</option>
+          </select>
+        </div>
         <div class="controls">
-          <button id="batchBtn">Run All 50 Transactions</button>
+          <button id="batchBtn">Run All 1000 Transactions</button>
           <input
             id="singleInput"
             type="text"
@@ -416,7 +573,6 @@
           />
           <button id="singleBtn" class="secondary">Analyze Single</button>
           <button id="refreshKpisBtn" class="secondary">Refresh KPIs</button>
-          <button id="jsonBtn" class="secondary">View Raw Data</button>
         </div>
       </div>
 
@@ -495,7 +651,7 @@
 
       <!-- Results Table -->
       <div class="card">
-        <h2>📋 Recent Results (Last 20)</h2>
+        <h2>📋 Transaction Results</h2>
         
         <!-- Search and Filter -->
         <div class="search-filter">
@@ -512,6 +668,18 @@
             <option value="LEGIT">True Legitimate</option>
           </select>
           <button id="clearFilters" class="secondary">Clear Filters</button>
+        </div>
+        
+        <!-- Pagination Info -->
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          <span id="paginationInfo">Showing 0 - 0 of 0 results</span>
+        </div>
+        
+        <!-- Pagination Controls -->
+        <div class="controls" id="paginationControls" style="justify-content: center; margin-bottom: 16px;">
+          <button id="prevPageBtn" class="secondary" style="margin-right: 8px;">← Previous</button>
+          <span id="pageNumbers" style="color: #8b949e; margin: 0 16px;"></span>
+          <button id="nextPageBtn" class="secondary">Next →</button>
         </div>
 
         <table>
@@ -543,15 +711,30 @@
         </div>
       </div>
 
-      <!-- JSON Data Viewer -->
-      <div class="card">
-        <h2>📄 Raw Data Viewer</h2>
+      <!-- Human Review Queue (Admin/Analyst only) -->
+      <div class="card" id="reviewQueueCard" style="display: none;">
+        <h2>👤 Human Review Queue</h2>
         <div class="controls">
-          <button id="toggleJsonBtn" class="secondary">Toggle JSON View</button>
-          <button id="downloadJsonBtn" class="secondary">Download JSON</button>
+          <button id="refreshReviewBtn" class="secondary">Refresh Queue</button>
+          <span id="reviewCount" style="color: #8b949e;">0 cases pending review</span>
         </div>
-        <div id="jsonViewer" class="json-viewer hidden">
-          <!-- JSON will be populated by JavaScript -->
+        <div id="reviewQueueList" style="margin-top: 16px;">
+          <!-- Review cases will be populated here -->
+        </div>
+      </div>
+
+      <!-- RL Reward Weights Configuration (Admin only) -->
+      <div class="card" id="rewardWeightsCard" style="display: none;">
+        <h2>⚖️ Reward Weights Configuration</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          Adjust how the RL model weighs different outcomes during training
+        </div>
+        <div id="rewardWeightsForm" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+          <!-- Form will be populated by JavaScript -->
+        </div>
+        <div class="controls" style="margin-top: 16px;">
+          <button id="saveRewardWeightsBtn">Save Reward Weights</button>
+          <button id="resetRewardWeightsBtn" class="secondary">Reset to Defaults</button>
         </div>
       </div>
 
@@ -592,10 +775,6 @@
       const singleBtn = document.getElementById("singleBtn");
       const singleInput = document.getElementById("singleInput");
       const refreshKpisBtn = document.getElementById("refreshKpisBtn");
-      const jsonBtn = document.getElementById("jsonBtn");
-      const toggleJsonBtn = document.getElementById("toggleJsonBtn");
-      const downloadJsonBtn = document.getElementById("downloadJsonBtn");
-      const jsonViewer = document.getElementById("jsonViewer");
       const transactionDetails = document.getElementById("transactionDetails");
       const searchInput = document.getElementById("searchInput");
       const decisionFilter = document.getElementById("decisionFilter");
@@ -603,11 +782,45 @@
       const clearFilters = document.getElementById("clearFilters");
       const status = document.getElementById("status");
       const alert = document.getElementById("alert");
+      const paginationInfo = document.getElementById("paginationInfo");
+      const paginationControls = document.getElementById("paginationControls");
+      const prevPageBtn = document.getElementById("prevPageBtn");
+      const nextPageBtn = document.getElementById("nextPageBtn");
+      const pageNumbers = document.getElementById("pageNumbers");
+      const loginModal = document.getElementById("loginModal");
+      const loginBtn = document.getElementById("loginBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+      const mainContent = document.getElementById("mainContent");
+      const currentUserInfo = document.getElementById("currentUserInfo");
+      const modelsCard = document.getElementById("modelsCard");
+      const refreshModelsBtn = document.getElementById("refreshModelsBtn");
+      const trainModelBtn = document.getElementById("trainModelBtn");
+      const modelsList = document.getElementById("modelsList");
+      const reviewQueueCard = document.getElementById("reviewQueueCard");
+      const reviewQueueList = document.getElementById("reviewQueueList");
+      const refreshReviewBtn = document.getElementById("refreshReviewBtn");
+      const reviewCount = document.getElementById("reviewCount");
+      const rewardWeightsCard = document.getElementById("rewardWeightsCard");
+      const rewardWeightsForm = document.getElementById("rewardWeightsForm");
+      const saveRewardWeightsBtn = document.getElementById("saveRewardWeightsBtn");
+      const resetRewardWeightsBtn = document.getElementById("resetRewardWeightsBtn");
+      const adminTrainingCard = document.getElementById("adminTrainingCard");
+      const startTrainingBtn = document.getElementById("startTrainingBtn");
+      const trainingStepsInput = document.getElementById("trainingStepsInput");
+      const trainingStatus = document.getElementById("trainingStatus");
+      const yubikeyIdInput = document.getElementById("yubikeyIdInput");
+      const analysisMethod = document.getElementById("analysisMethod");
+      const otpInput = document.getElementById("otpInput");
+      const generateOtpBtn = document.getElementById("generateOtpBtn");
 
       // State
       let allResults = [];
       let filteredResults = [];
       let rawData = null;
+      let currentSession = null;
+      let storedModels = [];
+      let currentPage = 1;
+      const resultsPerPage = 20;
 
       // Show alert
       function showAlert(message, type = "error") {
@@ -621,7 +834,10 @@
       // Refresh KPIs from /metrics endpoint
       async function refreshKpis() {
         try {
-          const res = await fetch(`${API}/metrics`);
+          const token = sessionStorage.getItem('session_token');
+          const res = await fetch(`${API}/metrics`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
           if (!res.ok) return;
           const m = await res.json();
           updateMetrics(m);
@@ -633,7 +849,10 @@
       // Load provenance for a transaction
       async function loadProvenance(id) {
         try {
-          const res = await fetch(`${API}/provenance/${id}`);
+          const token = sessionStorage.getItem('session_token');
+          const res = await fetch(`${API}/provenance/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
           if (!res.ok) { 
             showAlert("Provenance unavailable"); 
             return; 
@@ -758,71 +977,14 @@
         }
       }
 
-      // JSON syntax highlighting
-      function highlightJson(json) {
-        return json
-          .replace(/(".*?")\s*:/g, '<span class="json-key">$1</span>:')
-          .replace(/:\s*(".*?")/g, ': <span class="json-string">$1</span>')
-          .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
-          .replace(/:\s*(true|false)/g, ': <span class="json-boolean">$1</span>')
-          .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
-      }
-
-      // Load raw data
-      async function loadRawData() {
-        try {
-          const res = await fetch(`${API}/data`);
-          if (!res.ok) throw new Error("Failed to load data");
-          rawData = await res.json();
-          return rawData;
-        } catch (err) {
-          showAlert("Failed to load raw data: " + err.message);
-          return null;
-        }
-      }
-
-      // Show JSON viewer
-      async function showJsonViewer() {
-        if (!rawData) {
-          rawData = await loadRawData();
-        }
-        
-        if (rawData) {
-          const jsonString = JSON.stringify(rawData, null, 2);
-          jsonViewer.innerHTML = highlightJson(jsonString);
-          jsonViewer.classList.remove("hidden");
-          toggleJsonBtn.textContent = "Hide JSON View";
-        }
-      }
-
-      // Hide JSON viewer
-      function hideJsonViewer() {
-        jsonViewer.classList.add("hidden");
-        toggleJsonBtn.textContent = "Show JSON View";
-      }
-
-      // Download JSON
-      function downloadJson() {
-        if (!rawData) {
-          showAlert("No data to download");
-          return;
-        }
-        
-        const dataStr = JSON.stringify(rawData, null, 2);
-        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(dataBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'fraud-demo-data.json';
-        link.click();
-        URL.revokeObjectURL(url);
-        showAlert("JSON data downloaded!", "success");
-      }
 
       // Show transaction details
       async function showTransactionDetails(txnId) {
         try {
-          const res = await fetch(`${API}/transaction/${txnId}`);
+          const token = sessionStorage.getItem('session_token');
+          const res = await fetch(`${API}/transaction/${txnId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
           if (!res.ok) throw new Error("Transaction not found");
           
           const data = await res.json();
@@ -930,6 +1092,7 @@
           return matchesSearch && matchesDecision && matchesLabel;
         });
         
+        currentPage = 1; // Reset to first page when filtering
         updateResultsTable(filteredResults);
       }
 
@@ -942,7 +1105,7 @@
         updateResultsTable(filteredResults);
       }
 
-      // Update results table
+      // Update results table with pagination
       function updateResultsTable(results) {
         const tbody = document.getElementById("results");
         
@@ -954,10 +1117,28 @@
               </td>
             </tr>
           `;
+          paginationInfo.textContent = "Showing 0 - 0 of 0 results";
+          paginationControls.style.display = 'none';
           return;
         }
         
-        tbody.innerHTML = results
+        // Calculate pagination
+        const totalPages = Math.ceil(results.length / resultsPerPage);
+        const startIndex = (currentPage - 1) * resultsPerPage;
+        const endIndex = Math.min(startIndex + resultsPerPage, results.length);
+        const pageResults = results.slice(startIndex, endIndex);
+        
+        // Update pagination info
+        paginationInfo.textContent = `Showing ${startIndex + 1} - ${endIndex} of ${results.length} results`;
+        
+        // Update pagination controls
+        paginationControls.style.display = totalPages > 1 ? 'flex' : 'none';
+        prevPageBtn.disabled = currentPage === 1;
+        nextPageBtn.disabled = currentPage === totalPages;
+        pageNumbers.textContent = `Page ${currentPage} of ${totalPages}`;
+        
+        // Display page results
+        tbody.innerHTML = pageResults
           .map((r) => {
             const decisionBadge =
               r.decision === "FRAUD"
@@ -994,11 +1175,28 @@
           })
           .join("");
       }
+      
+      // Pagination handlers
+      prevPageBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+          currentPage--;
+          updateResultsTable(filteredResults);
+        }
+      });
+      
+      nextPageBtn.addEventListener('click', () => {
+        const totalPages = Math.ceil(filteredResults.length / resultsPerPage);
+        if (currentPage < totalPages) {
+          currentPage++;
+          updateResultsTable(filteredResults);
+        }
+      });
 
       // Update results (legacy function for compatibility)
       function updateResults(results) {
         allResults = [...results];
         filteredResults = [...results];
+        currentPage = 1; // Reset to first page when new results loaded
         updateResultsTable(results);
       }
 
@@ -1009,7 +1207,16 @@
 
         try {
           const start = Date.now();
-          const res = await fetch(`${API}/batch`, { method: "POST" });
+          const token = sessionStorage.getItem('session_token');
+          const method = analysisMethod.value;
+          
+          // Use RL model if selected, otherwise rule-based
+          const endpoint = method === 'rl' ? '/rl/batch' : '/batch';
+          
+          const res = await fetch(`${API}${endpoint}`, {
+            method: "POST",
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
           const elapsed = Date.now() - start;
 
           if (!res.ok) throw new Error("Batch failed");
@@ -1021,14 +1228,14 @@
           showAlert(
             `✓ Processed ${data.total} transactions in ${elapsed}ms (${(
               elapsed / data.total
-            ).toFixed(0)}ms avg)`,
+            ).toFixed(0)}ms avg) - Method: ${method === 'rl' ? 'RL Model' : 'Rule-Based'}`,
             "success"
           );
         } catch (err) {
           showAlert("Batch processing failed: " + err.message);
         } finally {
           batchBtn.disabled = false;
-          batchBtn.textContent = "Run All 50 Transactions";
+          batchBtn.textContent = "Run All 1000 Transactions";
         }
       });
 
@@ -1043,8 +1250,15 @@
         singleBtn.disabled = true;
 
         try {
-          const res = await fetch(`${API}/analyze?txn_id=${txnId}`, {
+          const token = sessionStorage.getItem('session_token');
+          const method = analysisMethod.value;
+          
+          // Use RL model if selected, otherwise rule-based
+          const endpoint = method === 'rl' ? `/rl/analyze/${txnId}` : `/analyze?txn_id=${txnId}`;
+          
+          const res = await fetch(`${API}${endpoint}`, {
             method: "POST",
+            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (!res.ok) throw new Error("Transaction not found");
 
@@ -1054,7 +1268,7 @@
           const flagsText =
             data.flags.length > 0 ? ` (${data.flags.join(", ")})` : "";
           showAlert(
-            `✓ Analyzed ${txnId}: ${data.decision}${flagsText}`,
+            `✓ Analyzed ${txnId}: ${data.decision}${flagsText} - Method: ${method === 'rl' ? 'RL' : 'Rule-Based'}`,
             "success"
           );
           
@@ -1078,24 +1292,6 @@
         showAlert("KPIs refreshed!", "success");
       });
 
-      // JSON viewer button
-      jsonBtn.addEventListener("click", () => {
-        showJsonViewer();
-      });
-
-      // Toggle JSON viewer
-      toggleJsonBtn.addEventListener("click", () => {
-        if (jsonViewer.classList.contains("hidden")) {
-          showJsonViewer();
-        } else {
-          hideJsonViewer();
-        }
-      });
-
-      // Download JSON
-      downloadJsonBtn.addEventListener("click", () => {
-        downloadJson();
-      });
 
       // Search and filter event listeners
       searchInput.addEventListener("input", filterResults);
@@ -1103,10 +1299,465 @@
       labelFilter.addEventListener("change", filterResults);
       clearFilters.addEventListener("click", clearAllFilters);
 
+      // ============ AUTHENTICATION FUNCTIONS ============
+      
+      async function autoLogin() {
+        const yubikey_id = yubikeyIdInput.value.trim();
+        
+        if (!yubikey_id) {
+          showAlert("Please enter your YubiKey ID", "error");
+          return;
+        }
+        
+        try {
+          // Generate OTP and auto-login
+          generateOtpBtn.disabled = true;
+          generateOtpBtn.textContent = "Generating OTP...";
+          
+          const response = await fetch(`${API}/auth/yubikey/auto-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yubikey_id })
+          });
+          
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Login failed');
+          }
+          
+          const session = await response.json();
+          currentSession = session;
+          
+          // Store session token
+          sessionStorage.setItem('session_token', session.session_token);
+          sessionStorage.setItem('user_info', JSON.stringify(session));
+          
+          // Hide modal and show main content
+          loginModal.classList.remove('active');
+          mainContent.style.display = 'block';
+          
+          // Update UI based on role
+          updateUserInfo(session);
+          showAlert(`✓ Logged in as ${session.name} (${session.role})`, "success");
+          
+          // Apply role-based restrictions
+          applyRoleRestrictions(session);
+          
+          // Log for debugging
+          console.log('Role:', session.role);
+          console.log('Review queue card display:', getComputedStyle(reviewQueueCard).display);
+          console.log('Reward weights card display:', getComputedStyle(rewardWeightsCard).display);
+          
+          // Refresh models if not admin
+          if (session.role !== 'admin') {
+            await loadModels();
+            modelsCard.style.display = 'block';
+          } else {
+            // Ensure cards are visible for admin
+            adminTrainingCard.style.display = 'block';
+            reviewQueueCard.style.display = 'block';
+            rewardWeightsCard.style.display = 'block';
+          }
+          
+          generateOtpBtn.disabled = false;
+          generateOtpBtn.textContent = "Generate OTP & Login";
+          
+        } catch (err) {
+          showAlert("Login failed: " + err.message);
+          generateOtpBtn.disabled = false;
+          generateOtpBtn.textContent = "Generate OTP & Login";
+        }
+      }
+      
+      async function loadHistoricalResults() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const res = await fetch(`${API}/results/all`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!res.ok) throw new Error('Failed to load results');
+          
+          const data = await res.json();
+          
+          if (data.has_data) {
+            updateResults(data.results);
+            showAlert(`✓ Loaded ${data.total} historical results`, "success");
+          } else {
+            showAlert("No historical results available. Results will appear after someone runs a batch analysis.", "warning");
+          }
+        } catch (err) {
+          showAlert('Failed to load results: ' + err.message);
+        }
+      }
+      
+      // ============ REVIEW QUEUE FUNCTIONS ============
+      
+      async function loadReviewQueue() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/review/queue`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Failed to load review queue');
+          
+          const cases = await response.json();
+          reviewCount.textContent = `${cases.length} cases pending review`;
+          
+          displayReviewQueue(cases);
+        } catch (err) {
+          showAlert('Failed to load review queue: ' + err.message);
+        }
+      }
+      
+      function displayReviewQueue(cases) {
+        if (cases.length === 0) {
+          reviewQueueList.innerHTML = '<div style="color: #8b949e; padding: 20px; text-align: center;">No cases pending review</div>';
+          return;
+        }
+        
+        reviewQueueList.innerHTML = cases.map(case_data => `
+          <div class="card" style="margin-bottom: 12px; padding: 16px; border-left: 4px solid #9e6a03;">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+              <div style="flex: 1;">
+                <h3 style="color: #58a6ff; margin-bottom: 8px;">${case_data.txn_id}</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 12px;">
+                  <div><strong>Confidence:</strong> ${(case_data.confidence * 100).toFixed(0)}%</div>
+                  <div><strong>True Label:</strong> ${case_data.true_label}</div>
+                  <div><strong>Flags:</strong> ${case_data.flags.join(', ') || 'None'}</div>
+                </div>
+                <textarea id="notes_${case_data.txn_id}" placeholder="Review notes..." style="width: 100%; min-height: 60px; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;"></textarea>
+              </div>
+              <div style="display: flex; gap: 8px; flex-direction: column;">
+                <button onclick="makeDecision('${case_data.txn_id}', 'FRAUD', '${case_data.txn_id}')" style="background: #da3633; padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: 600;">Mark as FRAUD</button>
+                <button onclick="makeDecision('${case_data.txn_id}', 'LEGIT', '${case_data.txn_id}')" style="background: #2ea043; padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: 600;">Mark as LEGIT</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+      
+      async function makeDecision(txnId, decision, notesId) {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const notes = document.getElementById(notesId).value || '';
+          
+          const response = await fetch(`${API}/review/update`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              txn_id: txnId,
+              human_decision: decision,
+              reviewer_notes: notes
+            })
+          });
+          
+          if (!response.ok) throw new Error('Failed to update decision');
+          
+          const data = await response.json();
+          showAlert(`✓ Decision updated: ${decision}. ${data.remaining_in_queue} cases remaining`, "success");
+          
+          // Reload queue
+          loadReviewQueue();
+        } catch (err) {
+          showAlert('Failed to update decision: ' + err.message);
+        }
+      }
+      
+      // ============ REWARD WEIGHTS FUNCTIONS ============
+      
+      async function loadRewardWeights() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/rl/reward-weights`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Failed to load reward weights');
+          
+          const weights = await response.json();
+          displayRewardWeights(weights);
+        } catch (err) {
+          showAlert('Failed to load reward weights: ' + err.message);
+        }
+      }
+      
+      function displayRewardWeights(weights) {
+        const weightEntries = [
+          { key: 'correct_fraud', label: 'Correct Fraud Detection', desc: 'Reward for catching fraud correctly' },
+          { key: 'correct_legit', label: 'Correct Legitimate', desc: 'Reward for correct legitimate classification' },
+          { key: 'false_positive', label: 'False Positive', desc: 'Penalty for false fraud alert' },
+          { key: 'false_negative', label: 'False Negative', desc: 'Penalty for missing fraud' },
+          { key: 'review_correct', label: 'Review Correct', desc: 'Reward for correct escalation' },
+          { key: 'review_incorrect', label: 'Review Incorrect', desc: 'Penalty for incorrect escalation' }
+        ];
+        
+        rewardWeightsForm.innerHTML = weightEntries.map(entry => `
+          <div style="background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d;">
+            <label style="display: block; margin-bottom: 8px; color: #8b949e; font-size: 14px;">${entry.label}</label>
+            <input type="number" id="weight_${entry.key}" value="${weights[entry.key] || 0}" step="0.1" style="width: 100%; padding: 8px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;" />
+            <div style="color: #8b949e; font-size: 12px; margin-top: 4px;">${entry.desc}</div>
+          </div>
+        `).join('');
+      }
+      
+      async function saveRewardWeights() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const weights = {
+            correct_fraud: parseFloat(document.getElementById('weight_correct_fraud').value),
+            correct_legit: parseFloat(document.getElementById('weight_correct_legit').value),
+            false_positive: parseFloat(document.getElementById('weight_false_positive').value),
+            false_negative: parseFloat(document.getElementById('weight_false_negative').value),
+            review_correct: parseFloat(document.getElementById('weight_review_correct').value),
+            review_incorrect: parseFloat(document.getElementById('weight_review_incorrect').value)
+          };
+          
+          const response = await fetch(`${API}/rl/reward-weights`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(weights)
+          });
+          
+          if (!response.ok) throw new Error('Failed to save reward weights');
+          
+          const data = await response.json();
+          
+          // Show detailed message about retraining requirement
+          if (data.requires_retraining) {
+            showAlert('⚠️ Reward weights saved! IMPORTANT: You MUST retrain the model for changes to take effect. Current predictions will not change until you train a new model.', "warning");
+          } else {
+            showAlert('✓ Reward weights saved successfully!', "success");
+          }
+          
+          // Refresh the weights display to show updated values
+          await loadRewardWeights();
+        } catch (err) {
+          showAlert('Failed to save reward weights: ' + err.message);
+        }
+      }
+      
+      function applyRoleRestrictions(session) {
+        const role = session.role;
+        
+        // Hide/show elements based on role
+        if (role === 'viewer') {
+          // Viewers can only view models and see results, not run new transactions
+          batchBtn.style.display = 'none';
+          singleBtn.style.display = 'none';
+          singleInput.style.display = 'none';
+          refreshKpisBtn.style.display = 'none';
+          reviewQueueCard.style.display = 'none';
+          rewardWeightsCard.style.display = 'none';
+          adminTrainingCard.style.display = 'none';
+          
+          // But they CAN see results and models
+          loadHistoricalResults();
+          showAlert("Viewer mode: You can view trained models and historical results, but cannot run new transactions", "warning");
+        } else if (role === 'analyst') {
+          // Analysts can run transactions, view models, see results, and review cases
+          batchBtn.style.display = 'inline-block';
+          singleBtn.style.display = 'inline-block';
+          singleInput.style.display = 'inline-block';
+          refreshKpisBtn.style.display = 'inline-block';
+          reviewQueueCard.style.display = 'block';
+          rewardWeightsCard.style.display = 'none';
+          adminTrainingCard.style.display = 'none';
+          
+          // Load review queue
+          loadReviewQueue();
+        } else if (role === 'admin') {
+          // Admins have full access
+          batchBtn.style.display = 'inline-block';
+          singleBtn.style.display = 'inline-block';
+          singleInput.style.display = 'inline-block';
+          refreshKpisBtn.style.display = 'inline-block';
+          reviewQueueCard.style.display = 'block';
+          rewardWeightsCard.style.display = 'block';
+          adminTrainingCard.style.display = 'block';
+          
+          // Load review queue and reward weights
+          loadReviewQueue();
+          loadRewardWeights();
+          
+          console.log('Admin logged in - showing reward weights and review queue');
+        }
+      }
+      
+      // Make sure to hide/show correctly on initial load
+      if (currentSession) {
+        applyRoleRestrictions(currentSession);
+      }
+      
+      function logout() {
+        currentSession = null;
+        sessionStorage.removeItem('session_token');
+        sessionStorage.removeItem('user_info');
+        
+        loginModal.classList.add('active');
+        mainContent.style.display = 'none';
+        currentUserInfo.innerHTML = '<div style="font-weight: 600;">Guest User</div><div style="font-size: 12px; color: #8b949e;">Not logged in</div>';
+        modelsCard.style.display = 'none';
+      }
+      
+      function updateUserInfo(session) {
+        const badgeClass = session.role === 'admin' ? 'badge-admin' : 
+                          session.role === 'analyst' ? 'badge-analyst' : 'badge-viewer';
+        
+        currentUserInfo.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600;">${session.name}</span>
+            <span class="user-badge ${badgeClass}">${session.role.toUpperCase()}</span>
+          </div>
+          <div style="font-size: 12px; color: #8b949e;">${session.permissions.description}</div>
+        `;
+      }
+      
+      // ============ MODEL MANAGEMENT FUNCTIONS ============
+      
+      async function loadModels() {
+        if (!currentSession) return;
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/rl/models`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!response.ok) throw new Error('Failed to load models');
+          
+          storedModels = await response.json();
+          displayModels(storedModels);
+          
+        } catch (err) {
+          showAlert('Failed to load models: ' + err.message);
+        }
+      }
+      
+      function displayModels(models) {
+        if (models.length === 0) {
+          modelsList.innerHTML = '<div style="color: #8b949e;">No models available yet.</div>';
+          return;
+        }
+        
+        modelsList.innerHTML = models.map(model => `
+          <div class="card" style="margin-bottom: 12px; padding: 16px;">
+            <h3 style="color: #58a6ff; margin-bottom: 8px;">${model.model_id}</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
+              <div><strong>Type:</strong> ${model.model_type}</div>
+              <div><strong>Steps:</strong> ${model.training_steps}</div>
+              <div><strong>Created:</strong> ${new Date(model.created_at).toLocaleString()}</div>
+            </div>
+            ${model.metrics && Object.keys(model.metrics).length > 0 ? `
+              <div style="margin-top: 12px;">
+                <strong>Metrics:</strong>
+                <pre style="background: #0d1117; padding: 8px; border-radius: 4px; font-size: 12px;">
+                  ${JSON.stringify(model.metrics, null, 2)}
+                </pre>
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+      }
+      
+      // Generate OTP and Auto-Login button
+      generateOtpBtn.addEventListener('click', autoLogin);
+      
+      // Press Enter to login
+      yubikeyIdInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') autoLogin();
+      });
+      
+      // Logout button
+      logoutBtn.addEventListener('click', logout);
+      
+      // Refresh models
+      refreshModelsBtn.addEventListener('click', loadModels);
+      
+      // Refresh review queue
+      refreshReviewBtn.addEventListener('click', loadReviewQueue);
+      
+      // Save/Reset reward weights (admin only)
+      saveRewardWeightsBtn.addEventListener('click', saveRewardWeights);
+      resetRewardWeightsBtn.addEventListener('click', loadRewardWeights);
+      
+      // Train model (admin only)
+      startTrainingBtn.addEventListener('click', async () => {
+        if (!currentSession || currentSession.role !== 'admin') {
+          showAlert('Only admin users can train models', 'error');
+          return;
+        }
+        
+        const timesteps = parseInt(trainingStepsInput.value) || 20000;
+        
+        if (timesteps < 1000) {
+          showAlert('Training steps must be at least 1000', 'error');
+          return;
+        }
+        
+        startTrainingBtn.disabled = true;
+        trainingStatus.textContent = 'Training in progress... This may take several minutes.';
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/rl/train?timesteps=${timesteps}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Training failed');
+          
+          const result = await response.json();
+          
+          showAlert(`✓ Model trained successfully! Accuracy: ${(result.accuracy * 100).toFixed(1)}%, Precision: ${(result.precision * 100).toFixed(1)}%, Recall: ${(result.recall * 100).toFixed(1)}%`, "success");
+          trainingStatus.textContent = `Training completed! Model ID: ${result.model_id}`;
+          
+          // Refresh models list
+          await loadModels();
+          
+        } catch (err) {
+          showAlert('Training failed: ' + err.message);
+          trainingStatus.textContent = 'Training failed';
+        } finally {
+          startTrainingBtn.disabled = false;
+        }
+      });
+      
       // Auto-test connection on load
       window.addEventListener("load", () => {
         console.log("🛡️ Fraud Detection Co-Pilot loaded");
         console.log("📡 API endpoint:", API);
+        
+        // Check for existing session
+        const savedSession = sessionStorage.getItem('user_info');
+        if (savedSession) {
+          currentSession = JSON.parse(savedSession);
+          updateUserInfo(currentSession);
+          mainContent.style.display = 'block';
+          
+          // Apply role restrictions on load
+          applyRoleRestrictions(currentSession);
+          
+          if (currentSession.role !== 'admin') {
+            loadModels();
+            modelsCard.style.display = 'block';
+          } else {
+            trainModelBtn.style.display = 'inline-block';
+          }
+        } else {
+          loginModal.classList.add('active');
+        }
+        
         testBtn.click();
         setTimeout(refreshKpis, 400); // Small delay after health check
       });

@@ -42,6 +42,16 @@ This analysis examines our hypothesis's validation through two experiments and c
 
 This demo now includes a **Reinforcement Learning (RL) fraud detection system** alongside the original rule-based approach! The RL model uses PPO (Proximal Policy Optimization) to learn optimal fraud detection strategies through trial and error.
 
+## 🔐 NEW: Role-Based Access Control (RBAC)
+
+This demo now includes **comprehensive RBAC with simulated YubiKey authentication**! Different user roles have different permissions:
+
+- **Admin**: Can train models, view all models, and manage the system
+- **Analyst**: Can view trained models and analyze transactions (cannot train)
+- **Viewer**: Can view trained models and analyze transactions (read-only)
+
+Models trained by admins are stored in `backend/models/` and can be viewed by all authenticated users.
+
 ## 🎯 Hypothesis
 
 Our central hypothesis is that an AI agent using Reinforcement Learning (RL) can continuously improve fraud detection by learning from outcomes, leading to:
@@ -116,6 +126,19 @@ chmod +x start.sh
 ```
 
 Then open: http://localhost:8080
+
+### 🔐 Login Instructions
+
+When you open the application, you'll be prompted to login with simulated YubiKey credentials:
+
+**Available Users:**
+- **Admin**: `admin-yubikey-123` / `admin2024!` - Full access, can train models
+- **Analyst**: `analyst-yubikey-456` / `analyst2024!` - Can view models and analyze
+- **Viewer**: `viewer-yubikey-789` / `viewer2024!` - Read-only access
+
+**Different Roles See:**
+- Admin users see a "Train New Model" button and can access all training endpoints
+- Analyst/Viewer users see a "Trained Models" section where they can view all models trained by admins
 
 ### 🧠 Testing the RL System
 

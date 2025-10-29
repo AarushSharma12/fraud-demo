@@ -91,3 +91,10 @@ frontend/build/
 *.swp
 *.swo
 
+# Trained models and RL artifacts
+backend/models/
+backend/*.pkl
+backend/*_scaler.pkl
+rl_fraud_model.pkl
+rl_scaler.pkl
+

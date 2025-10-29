@@ -3,13 +3,15 @@ Fraud Detection Demo - Complete Backend
 INFO 492 - Week 3 Demo #1
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import List, Literal
+from typing import List, Literal, Optional
 import json
 import re
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -18,6 +20,251 @@ from stable_baselines3.common.env_util import make_vec_env
 from sklearn.preprocessing import StandardScaler
 import pickle
 import os
+import uuid
+import hashlib
+from pathlib import Path
+try:
+    import torch
+except ImportError:
+    torch = None
+
+# ============ RBAC & AUTHENTICATION ============
+
+# Simulated YubiKey database (in production, this would be a secure database)
+# Format: {yubikey_id: {password_hash, user_id, role, name, email}}
+YUBIKEY_DB = {
+    "admin-yubikey-123": {
+        "password_hash": hashlib.sha256("admin2024!".encode()).hexdigest(),
+        "user_id": "admin-001",
+        "role": "admin",
+        "name": "Sarah Johnson",
+        "email": "sarah.johnson@fraudco.com",
+        "created_at": datetime.utcnow()
+    },
+    "analyst-yubikey-456": {
+        "password_hash": hashlib.sha256("analyst2024!".encode()).hexdigest(),
+        "user_id": "analyst-001", 
+        "role": "analyst",
+        "name": "Michael Chen",
+        "email": "michael.chen@fraudco.com",
+        "created_at": datetime.utcnow()
+    },
+    "viewer-yubikey-789": {
+        "password_hash": hashlib.sha256("viewer2024!".encode()).hexdigest(),
+        "user_id": "viewer-001",
+        "role": "viewer",
+        "name": "David Wilson",
+        "email": "david.wilson@fraudco.com",
+        "created_at": datetime.utcnow()
+    }
+}
+
+# OTP storage: {yubikey_id: {otp, expires_at}}
+OTP_STORE = {}
+
+# Active sessions (in production, use Redis or similar)
+ACTIVE_SESSIONS = {}
+
+security = HTTPBearer()
+
+# Role definitions and permissions
+ROLES_PERMISSIONS = {
+    "admin": {
+        "can_train": True,
+        "can_view_models": True,
+        "can_analyze": True,
+        "can_manage_users": True,
+        "description": "Full access - can train models and manage system"
+    },
+    "analyst": {
+        "can_train": False,
+        "can_view_models": True,
+        "can_analyze": True,
+        "can_manage_users": False,
+        "description": "Can analyze transactions and view trained models"
+    },
+    "viewer": {
+        "can_train": False,
+        "can_view_models": True,
+        "can_analyze": True,
+        "can_manage_users": False,
+        "description": "Can view models and analyze transactions"
+    }
+}
+
+
+class OTPRequest(BaseModel):
+    yubikey_id: str
+
+
+class VerifyOTPRequest(BaseModel):
+    yubikey_id: str
+    otp: str
+
+
+class YubiKeyLoginRequest(BaseModel):
+    yubikey_id: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    session_token: str
+    user_id: str
+    name: str
+    role: str
+    permissions: dict
+    expires_at: str
+
+
+class UserInfo(BaseModel):
+    user_id: str
+    name: str
+    role: str
+    permissions: dict
+
+
+class StoredModel(BaseModel):
+    model_id: str
+    model_type: str
+    training_steps: int
+    created_at: str
+    metrics: dict
+    file_path: str
+    
+    model_config = {"protected_namespaces": ()}
+
+
+class ReviewCase(BaseModel):
+    txn_id: str
+    decision: str
+    confidence: float
+    flags: List[str]
+    explanation: str
+    true_label: str
+
+
+class UpdateDecisionRequest(BaseModel):
+    txn_id: str
+    human_decision: Literal["FRAUD", "LEGIT"]
+    reviewer_notes: str = ""
+
+
+class RewardWeights(BaseModel):
+    correct_fraud: float = 10.0
+    correct_legit: float = 1.0
+    false_positive: float = -5.0
+    false_negative: float = -20.0
+    review_correct: float = 2.0
+    review_incorrect: float = -1.0
+
+
+def generate_session_token() -> str:
+    """Generate a secure session token"""
+    return str(uuid.uuid4())
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash"""
+    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+
+
+def generate_otp() -> str:
+    """Generate a 6-digit OTP"""
+    return f"{random.randint(100000, 999999)}"
+
+
+def send_otp_to_yubikey(yubikey_id: str, user_data: dict, otp: str) -> None:
+    """Simulate sending OTP to YubiKey device (in production, use actual YubiKey API)"""
+    print(f"🔐 [SIMULATED] OTP displayed on YubiKey {yubikey_id} ({user_data['name']}): {otp}")
+    # In production, this would interface with the actual YubiKey device
+    pass
+
+
+def create_session(yubikey_id: str, user_data: dict) -> dict:
+    """Create a new session for authenticated user"""
+    session_token = generate_session_token()
+    expires_at = datetime.utcnow() + timedelta(hours=8)  # 8 hour session
+    
+    ACTIVE_SESSIONS[session_token] = {
+        "yubikey_id": yubikey_id,
+        "user_id": user_data["user_id"],
+        "name": user_data["name"],
+        "role": user_data["role"],
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    return {
+        "session_token": session_token,
+        "user_id": user_data["user_id"],
+        "name": user_data["name"],
+        "role": user_data["role"],
+        "permissions": ROLES_PERMISSIONS[user_data["role"]],
+        "expires_at": expires_at.isoformat()
+    }
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
+    """Verify session token and return current user"""
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication credentials"
+        )
+    
+    session_token = credentials.credentials
+    
+    if session_token not in ACTIVE_SESSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session token"
+        )
+    
+    session = ACTIVE_SESSIONS[session_token]
+    
+    # Check if session expired
+    expires_at = datetime.fromisoformat(session["expires_at"])
+    if datetime.utcnow() > expires_at:
+        del ACTIVE_SESSIONS[session_token]
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired"
+        )
+    
+    return session
+
+
+def require_permission(permission: str):
+    """Decorator to check if user has required permission"""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            # Get current user from kwargs (injected by Depends)
+            user = kwargs.get("current_user") or args[-1] if args else None
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required"
+                )
+            
+            role = user.get("role")
+            if role not in ROLES_PERMISSIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid user role"
+                )
+            
+            if not ROLES_PERMISSIONS[role].get(permission, False):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission denied: {permission} required"
+                )
+            
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
 
 # ============ DATA MODELS ============
 
@@ -62,6 +309,8 @@ class RLTrainingResult(BaseModel):
     accuracy: float
     precision: float
     recall: float
+    
+    model_config = {"protected_namespaces": ()}
 
 
 # ============ REINFORCEMENT LEARNING ENVIRONMENT ============
@@ -209,13 +458,19 @@ class RLModelManager:
         self.env = None
         self.model_path = "rl_fraud_model.pkl"
         self.scaler_path = "rl_scaler.pkl"
+        # Use absolute path for models directory
+        self.models_dir = Path(__file__).parent / "models"
+        self.models_dir.mkdir(exist_ok=True)
+        # Track if weights were changed
+        self.weights_changed = False
+        self.last_weights = None
     
     def create_environment(self):
         """Create RL environment"""
         self.env = FraudDetectionEnv(self.transactions, self.scaler)
         return self.env
     
-    def train_model(self, total_timesteps=20000):
+    def train_model(self, total_timesteps=20000, user_id: str = None):
         """Train PPO model with larger dataset"""
         if self.env is None:
             self.create_environment()
@@ -244,21 +499,86 @@ class RLModelManager:
         print(f"🎯 Training RL model on {len(self.transactions)} transactions...")
         self.model.learn(total_timesteps=total_timesteps)
         
-        # Save model and scaler
+        # Generate unique model ID with timestamp
+        model_id = f"model_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        if user_id:
+            model_id = f"{model_id}_{user_id[:8]}"
+        
+        # Save to models directory
+        model_file = self.models_dir / f"{model_id}.pkl"
+        scaler_file = self.models_dir / f"{model_id}_scaler.pkl"
+        
+        self.model.save(str(model_file))
+        with open(scaler_file, 'wb') as f:
+            pickle.dump(self.env.scaler, f)
+        
+        # Also keep latest for quick access
         self.model.save(self.model_path)
         with open(self.scaler_path, 'wb') as f:
             pickle.dump(self.env.scaler, f)
         
-        return self.model
+        return self.model, model_id
     
-    def load_model(self):
+    def load_model(self, model_id: str = None):
         """Load trained model"""
-        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
+        if model_id:
+            model_file = self.models_dir / f"{model_id}.pkl"
+            scaler_file = self.models_dir / f"{model_id}_scaler.pkl"
+            if model_file.exists() and scaler_file.exists():
+                self.model = PPO.load(str(model_file))
+                with open(scaler_file, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                return True
+        elif os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
             self.model = PPO.load(self.model_path)
             with open(self.scaler_path, 'rb') as f:
                 self.scaler = pickle.load(f)
             return True
         return False
+    
+    def list_stored_models(self) -> List[StoredModel]:
+        """List all stored models"""
+        models = []
+        for model_file in self.models_dir.glob("*.pkl"):
+            if "_scaler" in model_file.name:
+                continue
+            
+            model_id = model_file.stem
+            try:
+                # Try to load metadata if it exists
+                metadata_file = self.models_dir / f"{model_id}_metadata.json"
+                if metadata_file.exists():
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    models.append(StoredModel(
+                        model_id=metadata.get("model_id", model_id),
+                        model_type=metadata.get("model_type", "PPO"),
+                        training_steps=metadata.get("training_steps", 0),
+                        created_at=metadata.get("created_at", datetime.utcnow().isoformat()),
+                        metrics=metadata.get("metrics", {}),
+                        file_path=str(model_file)
+                    ))
+            except Exception as e:
+                # If no metadata, create basic entry
+                stat = model_file.stat()
+                models.append(StoredModel(
+                    model_id=model_id,
+                    model_type="PPO",
+                    training_steps=0,
+                    created_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    metrics={},
+                    file_path=str(model_file)
+                ))
+        
+        # Sort by creation time, newest first
+        return sorted(models, key=lambda m: m.created_at, reverse=True)
+    
+    def save_model_metadata(self, model_id: str, metadata: dict):
+        """Save metadata for a model"""
+        metadata_file = self.models_dir / f"{model_id}_metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f)
     
     def predict(self, transaction):
         """Predict fraud decision for a transaction"""
@@ -273,15 +593,50 @@ class RLModelManager:
         features = self.env._extract_features(transaction)
         normalized_features = self.env.scaler.transform([features])
         
-        # Predict action
-        action, _ = self.model.predict(normalized_features, deterministic=True)
+        # Get observation (flatten to 1D if needed)
+        obs = normalized_features[0] if len(normalized_features.shape) > 1 else normalized_features
+        
+        try:
+            # Get action prediction
+            action, _states = self.model.predict(obs, deterministic=True)
+            
+            # Convert action to Python int if it's a numpy array or scalar
+            if hasattr(action, 'item'):
+                action = action.item()
+            elif isinstance(action, (np.ndarray, np.generic)):
+                action = int(action)
+            else:
+                action = int(action)
+            
+            # Try to get probability distribution for confidence estimate
+            if torch is not None:
+                try:
+                    obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+                    with torch.no_grad():
+                        latent_pi, _ = self.model.policy._get_latent(obs_tensor)
+                        distribution = self.model.policy._get_action_dist_from_latent(latent_pi)
+                        probs = distribution.distribution.probs[0]
+                        confidence = float(torch.max(probs).item())
+                except Exception as e:
+                    confidence = 0.85  # Default RL confidence
+            else:
+                confidence = 0.85  # Default RL confidence
+            
+        except Exception as e:
+            # Fallback if we can't get probabilities
+            action, _ = self.model.predict(obs, deterministic=True)
+            # Convert action to Python int
+            if hasattr(action, 'item'):
+                action = action.item()
+            elif isinstance(action, (np.ndarray, np.generic)):
+                action = int(action)
+            else:
+                action = int(action)
+            confidence = 0.85
         
         # Convert action to decision
         action_map = {0: "FRAUD", 1: "LEGIT", 2: "NEEDS_REVIEW"}
-        decision = action_map[action]
-        
-        # Calculate confidence (simplified)
-        confidence = 0.8 if decision == "FRAUD" else 0.7 if decision == "LEGIT" else 0.5
+        decision = action_map.get(action, "NEEDS_REVIEW")  # Default to NEEDS_REVIEW if action not found
         
         return decision, confidence
 
@@ -308,6 +663,12 @@ rl_manager = RLModelManager(TRANSACTIONS)
 
 # Persist last batch for KPI refresh
 LAST_BATCH: List[CaseResult] | None = None
+
+# Store all historical results for viewers to see
+ALL_RESULTS: List[CaseResult] = []
+
+# Human review queue: NEEDS_REVIEW cases awaiting human decision
+REVIEW_QUEUE: List[ReviewCase] = []
 
 # ============ GUARDRAILS ============
 
@@ -480,8 +841,163 @@ def root():
     return {"service": "Fraud Detection API", "version": "1.0.0", "status": "running"}
 
 
+@app.post("/auth/yubikey/otp/request")
+def request_yubikey_otp(request: OTPRequest) -> dict:
+    """Request OTP from YubiKey for login"""
+    yubikey_id = request.yubikey_id
+    
+    # Check if YubiKey exists
+    if yubikey_id not in YUBIKEY_DB:
+        # Don't reveal if YubiKey exists (security best practice)
+        return {
+            "message": "If this YubiKey exists, an OTP has been sent",
+            "yubikey_id": yubikey_id
+        }
+    
+    user_data = YUBIKEY_DB[yubikey_id]
+    
+    # Generate OTP
+    otp = generate_otp()
+    expires_at = datetime.utcnow() + timedelta(minutes=10)  # 10 minute expiry
+    
+    OTP_STORE[yubikey_id] = {
+        "otp": otp,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    # Simulate sending OTP to YubiKey device
+    send_otp_to_yubikey(yubikey_id, user_data, otp)
+    
+    return {
+        "message": "OTP displayed on YubiKey device",
+        "yubikey_id": yubikey_id,
+        "user_name": user_data["name"],
+        # In production, don't return OTP. This is for demo only:
+        "otp_demo": otp  # REMOVE IN PRODUCTION
+    }
+
+
+@app.post("/auth/yubikey/otp/verify", response_model=LoginResponse)
+def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
+    """Verify OTP from YubiKey and login"""
+    yubikey_id = request.yubikey_id
+    otp = request.otp
+    
+    # Check if YubiKey exists
+    if yubikey_id not in YUBIKEY_DB:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid YubiKey ID"
+        )
+    
+    user_data = YUBIKEY_DB[yubikey_id]
+    
+    # Check if OTP exists and is valid
+    if yubikey_id not in OTP_STORE:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No OTP found. Please request a new one."
+        )
+    
+    otp_data = OTP_STORE[yubikey_id]
+    
+    # Check if OTP expired
+    expires_at = datetime.fromisoformat(otp_data["expires_at"])
+    if datetime.utcnow() > expires_at:
+        del OTP_STORE[yubikey_id]
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OTP expired. Please request a new one."
+        )
+    
+    # Verify OTP
+    if otp_data["otp"] != otp:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid OTP"
+        )
+    
+    # OTP verified, create session
+    session = create_session(yubikey_id, user_data)
+    
+    # Clean up OTP
+    del OTP_STORE[yubikey_id]
+    
+    return LoginResponse(
+        session_token=session["session_token"],
+        user_id=session["user_id"],
+        name=session["name"],
+        role=session["role"],
+        permissions=session["permissions"],
+        expires_at=session["expires_at"]
+    )
+
+
+@app.post("/auth/yubikey/auto-login", response_model=LoginResponse)
+def auto_login_with_yubikey(request: OTPRequest) -> LoginResponse:
+    """Auto-generate OTP and login (simplified for demo)"""
+    yubikey_id = request.yubikey_id
+    
+    # Check if YubiKey exists
+    if yubikey_id not in YUBIKEY_DB:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid YubiKey ID"
+        )
+    
+    user_data = YUBIKEY_DB[yubikey_id]
+    
+    # Generate OTP for this login
+    otp = generate_otp()
+    print(f"🔐 [AUTO-LOGIN] Generated OTP for {yubikey_id} ({user_data['name']}): {otp}")
+    
+    # Create session
+    session = create_session(yubikey_id, user_data)
+    
+    return LoginResponse(
+        session_token=session["session_token"],
+        user_id=session["user_id"],
+        name=session["name"],
+        role=session["role"],
+        permissions=session["permissions"],
+        expires_at=session["expires_at"]
+    )
+
+
+@app.post("/auth/logout")
+def logout(current_user: dict = Depends(get_current_user)):
+    """Logout and invalidate session"""
+    # Get session token from request (you'd need to extract it)
+    # For simplicity, we'll just return success
+    return {"message": "Logged out successfully"}
+
+
+@app.get("/auth/me", response_model=UserInfo)
+def get_current_user_info(current_user: dict = Depends(get_current_user)) -> UserInfo:
+    """Get current authenticated user info"""
+    return UserInfo(
+        user_id=current_user["user_id"],
+        name=current_user["name"],
+        role=current_user["role"],
+        permissions=ROLES_PERMISSIONS[current_user["role"]]
+    )
+
+
+@app.get("/auth/roles")
+def list_roles():
+    """List all available roles and their permissions"""
+    return {
+        "roles": ROLES_PERMISSIONS,
+        "available_yubikeys": {
+            yid: {"role": data["role"], "name": data["name"], "email": data["email"]}
+            for yid, data in YUBIKEY_DB.items()
+        }
+    }
+
+
 @app.post("/analyze")
-def analyze_single(txn_id: str) -> dict:
+def analyze_single(txn_id: str, current_user: dict = Depends(get_current_user)) -> dict:
     """Analyze a single transaction"""
     if txn_id not in TRANSACTIONS:
         raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
@@ -514,9 +1030,9 @@ def analyze_single(txn_id: str) -> dict:
 
 
 @app.post("/batch")
-def analyze_batch() -> BatchResult:
+def analyze_batch(current_user: dict = Depends(get_current_user)) -> BatchResult:
     """Analyze all transactions"""
-    global LAST_BATCH
+    global LAST_BATCH, ALL_RESULTS
     results = []
 
     for txn_id, txn in TRANSACTIONS.items():
@@ -545,10 +1061,28 @@ def analyze_batch() -> BatchResult:
         )
 
     LAST_BATCH = results[:]  # Persist full results for KPI refresh
+    ALL_RESULTS = results[:]  # Store all results for viewers
+    
+    # Add NEEDS_REVIEW cases to review queue
+    global REVIEW_QUEUE
+    for result in results:
+        if result.decision == "NEEDS_REVIEW":
+            review_case = ReviewCase(
+                txn_id=result.txn_id,
+                decision=result.decision,
+                confidence=result.confidence,
+                flags=result.flags,
+                explanation="",
+                true_label=result.true_label
+            )
+            REVIEW_QUEUE.append(review_case)
+    
     metrics = calculate_metrics(results)
 
     return BatchResult(
-        total=len(results), results=results[-20:], metrics=metrics  # Last 20 for UI
+        total=len(results), 
+        results=results,  # Return ALL results (not just last 20)
+        metrics=metrics
     )
 
 
@@ -572,7 +1106,7 @@ def get_metrics():
 
 
 @app.get("/transactions")
-def list_transactions():
+def list_transactions(current_user: dict = Depends(get_current_user)):
     """List all transaction IDs"""
     return {"total": len(TRANSACTIONS), "ids": list(TRANSACTIONS.keys())}
 
@@ -613,72 +1147,292 @@ def get_transaction_details(txn_id: str):
 
 
 @app.post("/rl/train")
-def train_rl_model(timesteps: int = 20000) -> RLTrainingResult:
-    """Train the RL fraud detection model"""
+def train_rl_model(
+    timesteps: int = 20000,
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """Train the RL fraud detection model (admin only)"""
     try:
+        # Check if user has permission to train
+        if current_user["role"] not in ["admin"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin users can train models"
+            )
+        
+        # Show warning if weights were changed
+        weights_changed_info = ""
+        if rl_manager.weights_changed and rl_manager.last_weights:
+            weights_changed_info = " (Note: Using updated reward weights - previous weights were different)"
+            rl_manager.weights_changed = False  # Reset flag after training
+        
         # Train the model
-        model = rl_manager.train_model(total_timesteps=timesteps)
+        try:
+            model, model_id = rl_manager.train_model(
+                total_timesteps=timesteps,
+                user_id=current_user["user_id"]
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Model training failed: {str(e)}")
         
-        # Evaluate the model
-        env = rl_manager.create_environment()
-        obs, _ = env.reset()
-        
-        total_reward = 0
-        correct_predictions = 0
-        total_predictions = 0
-        tp = fp = fn = tn = 0
-        
-        done = False
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, info = env.step(action)
-            total_reward += reward
+        # Evaluate the model - simplified evaluation
+        try:
+            # Create a simple evaluation environment
+            eval_env = rl_manager.create_environment()
+            obs, _ = eval_env.reset()
             
-            if 'true_label' in info:
-                true_label = info['true_label']
-                predicted = {0: "FRAUD", 1: "LEGIT", 2: "NEEDS_REVIEW"}[action]
-                
-                if predicted == true_label:
-                    correct_predictions += 1
-                
-                # Calculate confusion matrix
-                if predicted == "FRAUD" and true_label == "FRAUD":
-                    tp += 1
-                elif predicted == "FRAUD" and true_label == "LEGIT":
-                    fp += 1
-                elif predicted == "LEGIT" and true_label == "FRAUD":
-                    fn += 1
-                elif predicted == "LEGIT" and true_label == "LEGIT":
-                    tn += 1
-                
-                total_predictions += 1
+            total_reward = 0
+            correct_predictions = 0
+            total_predictions = 0
+            tp = fp = fn = tn = 0
             
-            done = done or truncated
+            done = False
+            step_count = 0
+            max_steps = 100  # Limit evaluation to prevent infinite loops
+            
+            while not done and step_count < max_steps:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, done, truncated, info = eval_env.step(action)
+                total_reward += reward
+                step_count += 1
+                
+                if info and 'true_label' in info:
+                    true_label = info['true_label']
+                    predicted = {0: "FRAUD", 1: "LEGIT", 2: "NEEDS_REVIEW"}[action]
+                    
+                    if predicted == true_label:
+                        correct_predictions += 1
+                    
+                    # Calculate confusion matrix
+                    if predicted == "FRAUD" and true_label == "FRAUD":
+                        tp += 1
+                    elif predicted == "FRAUD" and true_label == "LEGIT":
+                        fp += 1
+                    elif predicted == "LEGIT" and true_label == "FRAUD":
+                        fn += 1
+                    elif predicted == "LEGIT" and true_label == "LEGIT":
+                        tn += 1
+                    
+                    total_predictions += 1
+                
+                done = done or truncated
+        except Exception as e:
+            # If evaluation fails, still return success with default metrics
+            print(f"Evaluation warning: {str(e)}")
+            accuracy = 0.0
+            precision = 0.0
+            recall = 0.0
+            total_reward = 0
+        else:
+            accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         
-        accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        metrics = {
+            "model_type": "PPO",
+            "training_steps": timesteps,
+            "final_reward": round(total_reward, 2),
+            "accuracy": round(accuracy, 3),
+            "precision": round(precision, 3),
+            "recall": round(recall, 3)
+        }
         
-        return RLTrainingResult(
-            model_type="PPO",
-            training_steps=timesteps,
-            final_reward=total_reward,
-            accuracy=round(accuracy, 3),
-            precision=round(precision, 3),
-            recall=round(recall, 3)
-        )
+        # Save metadata
+        metadata = {
+            "model_id": model_id,
+            "model_type": "PPO",
+            "training_steps": timesteps,
+            "created_at": datetime.utcnow().isoformat(),
+            "created_by": current_user["user_id"],
+            "trainer_name": current_user["name"],
+            "metrics": metrics
+        }
+        rl_manager.save_model_metadata(model_id, metadata)
         
+        result = RLTrainingResult(**metrics)
+        return {
+            **result.dict(),
+            "model_id": model_id,
+            "message": f"Model trained and stored successfully{weights_changed_info}",
+            "current_reward_weights": rl_manager.env.reward_weights
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
 
 
+@app.get("/rl/models", response_model=List[StoredModel])
+def list_rl_models(current_user: dict = Depends(get_current_user)) -> List[StoredModel]:
+    """List all stored RL models (accessible to all authenticated users)"""
+    return rl_manager.list_stored_models()
+
+
+@app.get("/results/all")
+def get_all_results(current_user: dict = Depends(get_current_user)):
+    """Get all historical analysis results (accessible to all authenticated users)"""
+    global ALL_RESULTS
+    return {
+        "total": len(ALL_RESULTS),
+        "results": ALL_RESULTS,  # Return ALL results (all 1000 transactions)
+        "has_data": len(ALL_RESULTS) > 0
+    }
+
+
+@app.get("/review/queue", response_model=List[ReviewCase])
+def get_review_queue(current_user: dict = Depends(get_current_user)) -> List[ReviewCase]:
+    """Get all cases needing human review (admin/analyst only)"""
+    # Check if user has permission
+    if current_user["role"] not in ["admin", "analyst"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin and analyst users can review cases"
+        )
+    
+    return REVIEW_QUEUE
+
+
+@app.post("/review/update")
+def update_review_decision(request: UpdateDecisionRequest, current_user: dict = Depends(get_current_user)):
+    """Update a human decision for a NEEDS_REVIEW case (admin/analyst only)"""
+    # Check if user has permission
+    if current_user["role"] not in ["admin", "analyst"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin and analyst users can review cases"
+        )
+    
+    global REVIEW_QUEUE
+    # Find and remove from queue
+    for i, case in enumerate(REVIEW_QUEUE):
+        if case.txn_id == request.txn_id:
+            REVIEW_QUEUE.pop(i)
+            
+            # Update in ALL_RESULTS if it exists
+            for j, result in enumerate(ALL_RESULTS):
+                if result.txn_id == request.txn_id:
+                    ALL_RESULTS[j] = CaseResult(
+                        txn_id=request.txn_id,
+                        decision=request.human_decision,
+                        confidence=case.confidence,
+                        flags=case.flags,
+                        true_label=case.true_label
+                    )
+                    break
+            
+            return {
+                "message": "Decision updated",
+                "txn_id": request.txn_id,
+                "decision": request.human_decision,
+                "reviewer": current_user["name"],
+                "notes": request.reviewer_notes,
+                "remaining_in_queue": len(REVIEW_QUEUE)
+            }
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Transaction {request.txn_id} not found in review queue"
+    )
+
+
+@app.get("/rl/reward-weights")
+def get_reward_weights(current_user: dict = Depends(get_current_user)):
+    """Get current reward weights (admin only)"""
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can view/modify reward weights"
+        )
+    
+    return rl_manager.env.reward_weights if hasattr(rl_manager, 'env') and rl_manager.env else {
+        'correct_fraud': 10.0,
+        'correct_legit': 1.0,
+        'false_positive': -5.0,
+        'false_negative': -20.0,
+        'review_correct': 2.0,
+        'review_incorrect': -1.0
+    }
+
+
+@app.post("/rl/reward-weights")
+def update_reward_weights(weights: RewardWeights, current_user: dict = Depends(get_current_user)):
+    """Update reward weights for RL training (admin only)"""
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can modify reward weights"
+        )
+    
+    # Store old weights before updating
+    if rl_manager.env:
+        rl_manager.last_weights = rl_manager.env.reward_weights.copy()
+    else:
+        rl_manager.last_weights = None
+    
+    # Update reward weights in environment
+    if not hasattr(rl_manager, 'env') or rl_manager.env is None:
+        rl_manager.create_environment()
+    
+    new_weights = {
+        'correct_fraud': weights.correct_fraud,
+        'correct_legit': weights.correct_legit,
+        'false_positive': weights.false_positive,
+        'false_negative': weights.false_negative,
+        'review_correct': weights.review_correct,
+        'review_incorrect': weights.review_incorrect
+    }
+    
+    rl_manager.env.reward_weights = new_weights
+    rl_manager.weights_changed = True
+    
+    return {
+        "message": "Reward weights updated. IMPORTANT: You must retrain the model for changes to take effect.",
+        "weights": new_weights,
+        "previous_weights": rl_manager.last_weights,
+        "requires_retraining": True
+    }
+
+
+@app.get("/rl/models/{model_id}")
+def get_model_details(model_id: str, current_user: dict = Depends(get_current_user)):
+    """Get details of a specific model"""
+    models = rl_manager.list_stored_models()
+    
+    for model in models:
+        if model.model_id == model_id:
+            return {
+                "model_id": model.model_id,
+                "model_type": model.model_type,
+                "training_steps": model.training_steps,
+                "created_at": model.created_at,
+                "metrics": model.metrics,
+                "file_path": model.file_path,
+                "can_load": True
+            }
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Model {model_id} not found"
+    )
+
+
 @app.post("/rl/analyze/{txn_id}")
-def analyze_with_rl(txn_id: str) -> dict:
+def analyze_with_rl(txn_id: str, current_user: dict = Depends(get_current_user)) -> dict:
     """Analyze a transaction using the RL model"""
     if txn_id not in TRANSACTIONS:
         raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
     
     txn = TRANSACTIONS[txn_id]
+    
+    # Check if model is available
+    if rl_manager.model is None:
+        model_loaded = rl_manager.load_model()
+        if not model_loaded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No RL model available. Please train a model first using the 'Train RL Model' panel."
+            )
     
     try:
         decision, confidence = rl_manager.predict(txn)
@@ -698,8 +1452,19 @@ def analyze_with_rl(txn_id: str) -> dict:
 
 
 @app.post("/rl/batch")
-def analyze_batch_with_rl() -> BatchResult:
+def analyze_batch_with_rl(current_user: dict = Depends(get_current_user)) -> BatchResult:
     """Analyze all transactions using the RL model"""
+    global ALL_RESULTS
+    
+    # Check if model is available
+    if rl_manager.model is None:
+        model_loaded = rl_manager.load_model()
+        if not model_loaded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No RL model available. Please train a model first using the 'Train RL Model' panel."
+            )
+    
     results = []
     
     for txn_id, txn in TRANSACTIONS.items():
@@ -715,21 +1480,40 @@ def analyze_batch_with_rl() -> BatchResult:
                 )
             )
         except Exception as e:
+            # Log the actual error
+            print(f"RL prediction error for {txn_id}: {str(e)}")
             results.append(
                 CaseResult(
                     txn_id=txn_id,
                     decision="NEEDS_REVIEW",
                     confidence=0.5,
-                    flags=["rl_error"],
+                    flags=["rl_error", f"error:{str(e)[:20]}"],
                     true_label=txn.label,
                 )
             )
+    
+    # Store results for viewers
+    ALL_RESULTS = results[:]
+    
+    # Add NEEDS_REVIEW cases to review queue
+    global REVIEW_QUEUE
+    for result in results:
+        if result.decision == "NEEDS_REVIEW":
+            review_case = ReviewCase(
+                txn_id=result.txn_id,
+                decision=result.decision,
+                confidence=result.confidence,
+                flags=result.flags,
+                explanation="",
+                true_label=result.true_label
+            )
+            REVIEW_QUEUE.append(review_case)
     
     metrics = calculate_metrics(results)
     
     return BatchResult(
         total=len(results), 
-        results=results[-20:], 
+        results=results,  # Return ALL results
         metrics=metrics
     )
 
