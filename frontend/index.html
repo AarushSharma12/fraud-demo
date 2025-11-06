@@ -759,7 +759,7 @@
     </div>
 
     <script>
-      const API = "http://localhost:8000";
+      const API = "https://attu2.cs.washington.edu:8000";
 
       // Elements
       const testBtn = document.getElementById("testBtn");
@@ -1657,9 +1657,9 @@
       generateOtpBtn.addEventListener('click', requestOtp);
       loginSubmitBtn.addEventListener('click', loginWithYubiKey);
       
-      // Press Enter to login
+      // Press Enter to trigger OTP request
       yubikeyIdInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') autoLogin();
+        if (e.key === 'Enter') requestOtp();
       });
       
       // Logout button

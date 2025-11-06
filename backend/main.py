@@ -646,12 +646,26 @@ class RLModelManager:
 app = FastAPI(title="Fraud Detection API")
 
 # Enable CORS
+# Backend deployed at: http://attu2.cs.washington.edu:8000
+# Frontend deployed at: https://homes.cs.washington.edu/~micibr/fraud-demo/frontend/index.html
+# 
+# NOTE: Mixed Content Issue
+# The frontend is served over HTTPS but the backend is HTTP.
+# Browsers block mixed content (HTTPS -> HTTP) for security.
+# Solution: Configure HTTPS on the backend with SSL certificates.
+# 
+# To enable HTTPS, set environment variables:
+# export SSL_KEYFILE="/path/to/key.pem"
+# export SSL_CERTFILE="/path/to/cert.pem"
+# Then use: uvicorn main:app --ssl-keyfile=$SSL_KEYFILE --ssl-certfile=$SSL_CERTFILE --port 8000
+#
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"],  # Allow all origins when credentials=False
+    allow_credentials=False,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers
 )
 
 # Load transaction data
@@ -838,11 +852,12 @@ def calculate_metrics(results: List[CaseResult]) -> dict:
 
 @app.get("/")
 def root():
+    """Health check endpoint"""
     return {"service": "Fraud Detection API", "version": "1.0.0", "status": "running"}
 
 
 @app.post("/auth/yubikey/otp/request")
-def request_yubikey_otp(request: OTPRequest) -> dict:
+async def request_yubikey_otp(request: OTPRequest) -> dict:
     """Request OTP from YubiKey for login"""
     yubikey_id = request.yubikey_id
     
@@ -1569,5 +1584,63 @@ def compare_methods(txn_id: str) -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+    import os
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Check if we should force HTTP mode (for reverse proxy setups)
+    force_http = os.getenv("FORCE_HTTP", "").lower() in ("true", "1", "yes")
+    
+    if force_http:
+        print("🌐 Running with HTTP (FORCE_HTTP enabled - for reverse proxy setups)")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    else:
+        # Get SSL certificate paths from environment or check common locations
+        ssl_keyfile = os.getenv("SSL_KEYFILE")
+        ssl_certfile = os.getenv("SSL_CERTFILE")
+        
+        # If not set, check common certificate locations
+        if not ssl_keyfile or not ssl_certfile:
+            common_key_paths = [
+                "/homes/iws/micibr/ssl/attu2.cs.washington.edu.key",
+                f"{os.path.expanduser('~')}/ssl/attu2.cs.washington.edu.key",
+                f"{os.path.expanduser('~')}/.ssl/attu2.cs.washington.edu.key",
+                "/etc/ssl/private/attu2.cs.washington.edu.key",
+                "/etc/letsencrypt/live/attu2.cs.washington.edu/privkey.pem",
+            ]
+            common_cert_paths = [
+                "/homes/iws/micibr/ssl/attu2.cs.washington.edu.crt",
+                f"{os.path.expanduser('~')}/ssl/attu2.cs.washington.edu.crt",
+                f"{os.path.expanduser('~')}/.ssl/attu2.cs.washington.edu.crt",
+                "/etc/ssl/certs/attu2.cs.washington.edu.crt",
+                "/etc/letsencrypt/live/attu2.cs.washington.edu/fullchain.pem",
+            ]
+            
+            for key_path in common_key_paths:
+                if os.path.exists(key_path):
+                    ssl_keyfile = key_path
+                    break
+            
+            for cert_path in common_cert_paths:
+                if os.path.exists(cert_path):
+                    ssl_certfile = cert_path
+                    break
+        
+        # Check if certificates exist
+        use_https = ssl_keyfile and ssl_certfile and os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile)
+        
+        if use_https:
+            print(f"🔒 Running with HTTPS using certificates:")
+            print(f"   Key: {ssl_keyfile}")
+            print(f"   Cert: {ssl_certfile}")
+            uvicorn.run(
+                app, 
+                host="0.0.0.0", 
+                port=8000,
+                ssl_keyfile=ssl_keyfile,
+                ssl_certfile=ssl_certfile
+            )
+        else:
+            print("⚠️  SSL certificates not found. Running with HTTP")
+            print("   To use HTTPS, set SSL_KEYFILE and SSL_CERTFILE environment variables")
+            print("   Or set FORCE_HTTP=true if using a reverse proxy (nginx/apache)")
+            print("   Note: If using reverse proxy, keep backend on HTTP and configure proxy for HTTPS")
+            uvicorn.run(app, host="0.0.0.0", port=8000)

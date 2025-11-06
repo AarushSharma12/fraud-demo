@@ -58,32 +58,32 @@ python -c "import gymnasium as gym; from stable_baselines3 import PPO; print('�
 }
 
 # Start backend server
-uvicorn main:app --reload --port 8000 &
+# Use python main.py to ensure SSL certificate detection runs
+echo "🚀 Starting backend server..."
+# Set SSL certificate paths
+export SSL_KEYFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.key"
+export SSL_CERTFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.crt"
+# Or set FORCE_HTTP=true to use HTTP only
+python main.py &
 BACKEND_PID=$!
 cd ..
 
 # Wait for backend
 echo "⏳ Waiting for backend..."
 for i in {1..10}; do
-    if curl -s http://localhost:8000/ > /dev/null 2>&1; then
+    # Try both HTTP and HTTPS
+    if curl -s http://localhost:8000/ > /dev/null 2>&1 || curl -s -k https://localhost:8000/ > /dev/null 2>&1; then
         echo "✅ Backend running"
         break
     fi
     sleep 1
 done
 
-# Start frontend
-echo "🌐 Starting frontend (port 8080)..."
-cd frontend
-python3 -m http.server 8080 &
-FRONTEND_PID=$!
-cd ..
-sleep 2
-
 echo ""
 echo "🎉 Demo Ready!"
 echo "===================================="
-echo "🌐 Open: http://localhost:8080"
+echo "🌐 Frontend: https://homes.cs.washington.edu/~micibr/fraud-demo/frontend/index.html"
+echo "📡 Backend: https://attu2.cs.washington.edu:8000"
 echo ""
 echo "📊 Demo Flow:"
 echo "  1. Click 'Test Connection' → Verify backend"
@@ -91,23 +91,14 @@ echo "  2. Click 'Run All 1000 Transactions' → See metrics"
 echo "  3. Try single transaction: T0002 (fraud) or T0001 (legit)"
 echo ""
 echo "🧠 RL System Testing:"
-echo "  • Train RL model: curl -X POST 'http://localhost:8000/rl/train?timesteps=20000'"
-echo "  • Compare methods: curl -X POST 'http://localhost:8000/compare/T0001'"
+echo "  • Train RL model: curl -X POST 'https://attu2.cs.washington.edu:8000/rl/train?timesteps=20000'"
+echo "  • Compare methods: curl -X POST 'https://attu2.cs.washington.edu:8000/compare/T0001'"
 echo "  • Test RL: python test_rl.py"
 echo ""
 echo "🛑 Press Ctrl+C to stop"
 
 # Trap Ctrl+C to cleanup
-trap "echo ''; echo '🛑 Stopping...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT
-
-# Open browser (platform-specific)
-if command -v open >/dev/null; then
-    open http://localhost:8080
-elif command -v xdg-open >/dev/null; then
-    xdg-open http://localhost:8080
-elif command -v start >/dev/null; then
-    start http://localhost:8080
-fi
+trap "echo ''; echo '🛑 Stopping...'; kill $BACKEND_PID 2>/dev/null; exit" INT
 
 # Keep script running
 wait
