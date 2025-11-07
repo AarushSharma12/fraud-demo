@@ -3,9 +3,10 @@ Fraud Detection Demo - Complete Backend
 INFO 492 - Week 3 Demo #1
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 import json
@@ -271,14 +272,15 @@ def require_permission(permission: str):
 
 class Transaction(BaseModel):
     id: str
+    timestamp: str  # ISO format datetime string
+    from_account: str
+    to_account: str
     amount: float
-    merchant: str
-    device_id: str
-    geo: str
-    velocity_30d: int
-    avg_amount_30d: float
-    merchant_known: bool
-    label: Literal["LEGIT", "FRAUD"]
+    transaction_type: str  # withdrawal, deposit, transfer, payment
+    category: str  # utilities, online, other, entertainment, travel, grocery, retail, restaurant
+    location: str  # Tokyo, Toronto, London, Sydney, Berlin, Dubai, New York, Singapore, etc.
+    channel: str  # mobile, atm, pos, web
+    is_fraud: bool  # True for fraud, False for legitimate
 
 
 class FraudDecision(BaseModel):
@@ -335,9 +337,9 @@ class FraudDetectionEnv(gym.Env):
         # Action space: 3 possible decisions
         self.action_space = spaces.Discrete(3)
         
-        # State space: 7 features (amount, velocity, avg_amount, merchant_known, geo_risk, device_new, velocity_spike)
+        # State space: 12 features (amount, geo_risk, transaction types, channels, category_risk, large_amount)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32
         )
         
         # Initialize scaler for feature normalization
@@ -364,18 +366,44 @@ class FraudDetectionEnv(gym.Env):
     def _extract_features(self, txn):
         """Extract normalized features from transaction"""
         # Convert categorical features to numerical
-        geo_risk = 1.0 if not txn.geo.endswith("-US") else 0.0
-        device_new = 1.0 if txn.velocity_30d == 0 else 0.0
-        velocity_spike = 1.0 if txn.velocity_30d <= 3 and txn.amount > 500 else 0.0
+        US_LOCATIONS = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", 
+                        "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville",
+                        "San Francisco", "Columbus", "Fort Worth", "Charlotte", "Seattle", "Denver",
+                        "Washington", "Boston", "El Paso", "Detroit", "Nashville", "Portland"]
+        geo_risk = 1.0 if txn.location not in US_LOCATIONS else 0.0
+        
+        # Transaction type encoding (one-hot like)
+        type_withdrawal = 1.0 if txn.transaction_type == "withdrawal" else 0.0
+        type_deposit = 1.0 if txn.transaction_type == "deposit" else 0.0
+        type_transfer = 1.0 if txn.transaction_type == "transfer" else 0.0
+        type_payment = 1.0 if txn.transaction_type == "payment" else 0.0
+        
+        # Channel encoding
+        channel_mobile = 1.0 if txn.channel == "mobile" else 0.0
+        channel_atm = 1.0 if txn.channel == "atm" else 0.0
+        channel_pos = 1.0 if txn.channel == "pos" else 0.0
+        channel_web = 1.0 if txn.channel == "web" else 0.0
+        
+        # Category risk (high-risk categories)
+        HIGH_RISK_CATEGORIES = ["other", "online"]
+        category_risk = 1.0 if txn.category in HIGH_RISK_CATEGORIES else 0.0
+        
+        # Large amount flag
+        large_amount = 1.0 if txn.amount > 1000 else 0.0
         
         return np.array([
             txn.amount,
-            txn.velocity_30d,
-            txn.avg_amount_30d,
-            1.0 if txn.merchant_known else 0.0,
             geo_risk,
-            device_new,
-            velocity_spike
+            type_withdrawal,
+            type_deposit,
+            type_transfer,
+            type_payment,
+            channel_mobile,
+            channel_atm,
+            channel_pos,
+            channel_web,
+            category_risk,
+            large_amount
         ], dtype=np.float32)
     
     def reset(self, seed=None, options=None):
@@ -387,13 +415,13 @@ class FraudDetectionEnv(gym.Env):
     def step(self, action):
         """Execute action and return next state, reward, done, info"""
         if self.current_idx >= len(self.transaction_ids):
-            return np.zeros(7), 0, True, {}
+            return np.zeros(12), 0, True, {}
         
         txn_id = self.transaction_ids[self.current_idx]
         txn = self.transactions[txn_id]
         
         # Get true label
-        true_label = txn.label
+        true_label = "FRAUD" if txn.is_fraud else "LEGIT"
         
         # Calculate reward based on action and true label
         reward = self._calculate_reward(action, true_label)
@@ -403,7 +431,7 @@ class FraudDetectionEnv(gym.Env):
         done = self.current_idx >= len(self.transaction_ids)
         
         # Get next observation
-        next_obs = self._get_observation() if not done else np.zeros(7)
+        next_obs = self._get_observation() if not done else np.zeros(12)
         
         info = {
             'txn_id': txn_id,
@@ -417,7 +445,7 @@ class FraudDetectionEnv(gym.Env):
     def _get_observation(self):
         """Get current observation"""
         if self.current_idx >= len(self.transaction_ids):
-            return np.zeros(7)
+            return np.zeros(12)
         
         txn_id = self.transaction_ids[self.current_idx]
         txn = self.transactions[txn_id]
@@ -645,6 +673,28 @@ class RLModelManager:
 
 app = FastAPI(title="Fraud Detection API")
 
+# Request logging middleware to track all incoming connections
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Get client IP address
+        client_ip = request.client.host if request.client else "unknown"
+        # Get X-Forwarded-For header if behind proxy
+        forwarded_for = request.headers.get("X-Forwarded-For", "")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        
+        # Get User-Agent to identify device type
+        user_agent = request.headers.get("User-Agent", "unknown")
+        
+        # Log the request
+        print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] {request.method} {request.url.path} from {client_ip} (UA: {user_agent[:50]})")
+        
+        response = await call_next(request)
+        return response
+
+# Add request logging middleware (before CORS)
+app.add_middleware(RequestLoggingMiddleware)
+
 # Enable CORS
 # Backend deployed at: http://attu2.cs.washington.edu:8000
 # Frontend deployed at: https://homes.cs.washington.edu/~micibr/fraud-demo/frontend/index.html
@@ -715,8 +765,9 @@ def mask_token(s: str, keep_tail: int = 2) -> str:
 def masked_transaction_dict(txn: Transaction) -> dict:
     """Return transaction dict with masked PII"""
     d = txn.dict()
-    # Mask device_id (keeping last 2 characters)
-    d["device_id"] = mask_token(d["device_id"])
+    # Mask account numbers (keeping last 2 characters)
+    d["from_account"] = mask_token(d["from_account"])
+    d["to_account"] = mask_token(d["to_account"])
     return d
 
 
@@ -744,10 +795,12 @@ def validate_transaction(txn: Transaction) -> tuple[bool, str]:
     """Validate transaction has required fields"""
     if txn.amount <= 0:
         return False, "Invalid amount"
-    if not txn.merchant:
-        return False, "Missing merchant"
-    if not txn.device_id:
-        return False, "Missing device_id"
+    if not txn.from_account:
+        return False, "Missing from_account"
+    if not txn.to_account:
+        return False, "Missing to_account"
+    if not txn.transaction_type:
+        return False, "Missing transaction_type"
     return True, ""
 
 
@@ -757,34 +810,46 @@ def validate_transaction(txn: Transaction) -> tuple[bool, str]:
 def analyze_transaction(txn: Transaction) -> FraudDecision:
     """
     Deterministic fraud detection with red flags:
-    - large_amount: amount > max(800, 5 * avg)
-    - new_merchant: merchant not seen before
-    - velocity_spike: low velocity but large transaction
-    - geo_risk: non-US geography
-    - device_new: very low velocity (first-time user pattern)
+    - large_amount: amount > 1000
+    - suspicious_category: high-risk categories
+    - suspicious_location: non-US locations
+    - suspicious_channel: unusual channels for transaction type
+    - suspicious_type: unusual transaction types
     """
     flags = []
-
+    
+    # High-risk categories
+    HIGH_RISK_CATEGORIES = ["other", "online"]
+    # High-risk locations (non-US)
+    US_LOCATIONS = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", 
+                    "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville",
+                    "San Francisco", "Columbus", "Fort Worth", "Charlotte", "Seattle", "Denver",
+                    "Washington", "Boston", "El Paso", "Detroit", "Nashville", "Portland"]
+    
     # Check for large amount
-    threshold = max(800, 5 * txn.avg_amount_30d)
-    if txn.amount > threshold:
+    if txn.amount > 1000:
         flags.append("large_amount")
-
-    # Check for unknown merchant
-    if not txn.merchant_known:
-        flags.append("new_merchant")
-
-    # Check for velocity spike (low velocity + large amount)
-    if txn.velocity_30d <= 3 and txn.amount > 500:
-        flags.append("velocity_spike")
-
-    # Check for geographic risk
-    if not txn.geo.endswith("-US"):
+    
+    # Check for suspicious category
+    if txn.category in HIGH_RISK_CATEGORIES:
+        flags.append("suspicious_category")
+    
+    # Check for geographic risk (non-US locations)
+    if txn.location not in US_LOCATIONS:
         flags.append("geo_risk")
-
-    # Check for new device pattern
-    if txn.velocity_30d == 0:
-        flags.append("device_new")
+    
+    # Check for suspicious channel combinations
+    # e.g., large withdrawals via mobile/web might be suspicious
+    if txn.transaction_type == "withdrawal" and txn.amount > 500 and txn.channel in ["mobile", "web"]:
+        flags.append("suspicious_channel")
+    
+    # Check for unusual transaction types with large amounts
+    if txn.transaction_type == "transfer" and txn.amount > 2000:
+        flags.append("large_transfer")
+    
+    # Check for deposit anomalies (very large deposits)
+    if txn.transaction_type == "deposit" and txn.amount > 5000:
+        flags.append("unusual_deposit")
 
     # Decision logic
     num_flags = len(flags)
@@ -794,11 +859,11 @@ def analyze_transaction(txn: Transaction) -> FraudDecision:
         confidence = min(0.95, 0.70 + (num_flags * 0.08))
         decision = "FRAUD"
         explanation = f"Multiple red flags detected: {', '.join(flags)}"
-    elif num_flags == 0 and txn.velocity_30d >= 5:
-        # Low risk, established pattern
-        confidence = 0.60 + min(0.25, txn.velocity_30d / 100)
+    elif num_flags == 0:
+        # Low risk
+        confidence = 0.75
         decision = "LEGIT"
-        explanation = "No red flags, established transaction pattern"
+        explanation = "No red flags detected"
     else:
         # Uncertain - needs human review
         confidence = 0.50
@@ -1028,7 +1093,7 @@ def analyze_single(txn_id: str, current_user: dict = Depends(get_current_user)) 
             "confidence": 0.5,
             "flags": [],
             "explanation": f"Validation failed: {error}",
-            "true_label": txn.label,
+            "true_label": "FRAUD" if txn.is_fraud else "LEGIT",
         }
 
     # Analyze
@@ -1040,7 +1105,7 @@ def analyze_single(txn_id: str, current_user: dict = Depends(get_current_user)) 
         "confidence": result.confidence,
         "flags": result.flags,
         "explanation": mask_pii(result.explanation),
-        "true_label": txn.label,
+        "true_label": "FRAUD" if txn.is_fraud else "LEGIT",
     }
 
 
@@ -1059,7 +1124,7 @@ def analyze_batch(current_user: dict = Depends(get_current_user)) -> BatchResult
                     decision="NEEDS_REVIEW",
                     confidence=0.5,
                     flags=[],
-                    true_label=txn.label,
+                    true_label="FRAUD" if txn.is_fraud else "LEGIT",
                 )
             )
             continue
@@ -1071,7 +1136,7 @@ def analyze_batch(current_user: dict = Depends(get_current_user)) -> BatchResult
                 decision=decision.decision,
                 confidence=decision.confidence,
                 flags=decision.flags,
-                true_label=txn.label,
+                true_label="FRAUD" if txn.is_fraud else "LEGIT",
             )
         )
 
@@ -1115,7 +1180,7 @@ def get_metrics():
         temp.append(CaseResult(
             txn_id=txn.id, decision=dec.decision,
             confidence=dec.confidence, flags=dec.flags,
-            true_label=txn.label
+            true_label="FRAUD" if txn.is_fraud else "LEGIT"
         ))
     return calculate_metrics(temp)
 
@@ -1459,7 +1524,7 @@ def analyze_with_rl(txn_id: str, current_user: dict = Depends(get_current_user))
             "confidence": round(confidence, 2),
             "flags": ["rl_prediction"],
             "explanation": f"RL model prediction with {confidence:.1%} confidence",
-            "true_label": txn.label,
+            "true_label": "FRAUD" if txn.is_fraud else "LEGIT",
         }
         
     except Exception as e:
@@ -1491,7 +1556,7 @@ def analyze_batch_with_rl(current_user: dict = Depends(get_current_user)) -> Bat
                     decision=decision,
                     confidence=confidence,
                     flags=["rl_prediction"],
-                    true_label=txn.label,
+                    true_label="FRAUD" if txn.is_fraud else "LEGIT",
                 )
             )
         except Exception as e:
@@ -1503,7 +1568,7 @@ def analyze_batch_with_rl(current_user: dict = Depends(get_current_user)) -> Bat
                     decision="NEEDS_REVIEW",
                     confidence=0.5,
                     flags=["rl_error", f"error:{str(e)[:20]}"],
-                    true_label=txn.label,
+                    true_label="FRAUD" if txn.is_fraud else "LEGIT",
                 )
             )
     
@@ -1566,7 +1631,7 @@ def compare_methods(txn_id: str) -> dict:
     
     return {
         "txn_id": txn_id,
-        "true_label": txn.label,
+        "true_label": "FRAUD" if txn.is_fraud else "LEGIT",
         "rule_based": {
             "decision": rule_result.decision,
             "confidence": rule_result.confidence,

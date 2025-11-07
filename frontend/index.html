@@ -481,13 +481,6 @@
           <button id="generateOtpBtn" class="secondary" style="flex:1;">Press Security Key</button>
           <button id="loginSubmitBtn" style="flex:1;">Login</button>
         </div>
-        <div style="margin-top: 16px; padding: 12px; background: #0d1117; border-radius: 6px; font-size: 12px; color: #8b949e;">
-          <strong>Demo YubiKeys:</strong><br/>
-          Admin: <code>admin-yubikey-123</code><br/>
-          Analyst: <code>analyst-yubikey-456</code><br/>
-          Viewer: <code>viewer-yubikey-789</code><br/><br/>
-          <strong>Note:</strong> Enter YubiKey ID and click "Generate OTP & Login" to auto-login
-        </div>
       </div>
     </div>
 
@@ -497,7 +490,7 @@
           <div>
             <h1>🛡️ Fraud Detection Co-Pilot</h1>
             <p class="subtitle">
-              INFO 492 - Finance Industry (PROTECT) - Week 3 Demo #1
+              INFO 492 - Finance Industry (PROTECT)
             </p>
             <p class="subtitle" style="margin-top: 4px">
               <strong>Hypothesis:</strong> AI agent reduces case-review time by ≥30%
@@ -737,22 +730,21 @@
           <p style="margin-bottom: 10px"><strong>Red Flags:</strong></p>
           <ul style="margin-left: 20px; margin-bottom: 10px">
             <li>
-              <span class="flag">large_amount</span> Transaction > 5x average or
-              > $800
+              <span class="flag">large_amount</span> Transaction amount > $1000
             </li>
-            <li><span class="flag">new_merchant</span> Unknown merchant</li>
+            <li><span class="flag">suspicious_category</span> High-risk category (online, other)</li>
             <li>
-              <span class="flag">velocity_spike</span> Low velocity + large
-              amount
+              <span class="flag">geo_risk</span> Non-US location
             </li>
-            <li><span class="flag">geo_risk</span> Non-US geography</li>
-            <li><span class="flag">device_new</span> First-time device</li>
+            <li><span class="flag">suspicious_channel</span> Large withdrawal via mobile/web</li>
+            <li><span class="flag">large_transfer</span> Transfer amount > $2000</li>
+            <li><span class="flag">unusual_deposit</span> Deposit amount > $5000</li>
           </ul>
           <p style="margin-bottom: 10px"><strong>Decision Logic:</strong></p>
           <ul style="margin-left: 20px">
             <li>≥2 flags → FRAUD (high confidence)</li>
-            <li>0 flags + established pattern → LEGIT</li>
-            <li>Uncertain → NEEDS_REVIEW (human-in-the-loop)</li>
+            <li>0 flags → LEGIT</li>
+            <li>1 flag → NEEDS_REVIEW</li>
           </ul>
         </div>
       </div>

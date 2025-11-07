@@ -60,10 +60,19 @@ python -c "import gymnasium as gym; from stable_baselines3 import PPO; print('�
 # Start backend server
 # Use python main.py to ensure SSL certificate detection runs
 echo "🚀 Starting backend server..."
-# Set SSL certificate paths
-export SSL_KEYFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.key"
-export SSL_CERTFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.crt"
-# Or set FORCE_HTTP=true to use HTTP only
+
+# Check if using reverse proxy (nginx handles HTTPS)
+if [ "$USE_REVERSE_PROXY" = "true" ] || [ "$FORCE_HTTP" = "true" ]; then
+    echo "🌐 Running backend in HTTP mode (reverse proxy will handle HTTPS)"
+    export FORCE_HTTP=true
+    export SSL_KEYFILE=""
+    export SSL_CERTFILE=""
+else
+    # Set SSL certificate paths for direct HTTPS
+    export SSL_KEYFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.key"
+    export SSL_CERTFILE="/homes/iws/micibr/ssl/attu2.cs.washington.edu.crt"
+fi
+
 python main.py &
 BACKEND_PID=$!
 cd ..
