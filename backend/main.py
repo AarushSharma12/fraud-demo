@@ -6,6 +6,7 @@ INFO 492 - Week 3 Demo #1
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import List, Literal, Optional
@@ -14,6 +15,9 @@ import re
 import random
 from datetime import datetime, timedelta
 import numpy as np
+import asyncio
+import threading
+from collections import deque
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
@@ -667,6 +671,183 @@ class RLModelManager:
         decision = action_map.get(action, "NEEDS_REVIEW")  # Default to NEEDS_REVIEW if action not found
         
         return decision, confidence
+
+
+# ============ LIVE DATA FEED SIMULATOR ============
+
+class LiveTransactionGenerator:
+    """Generates realistic transactions for live feed simulation"""
+    
+    TRANSACTION_TYPES = ["withdrawal", "deposit", "transfer", "payment"]
+    CATEGORIES = ["utilities", "online", "other", "entertainment", "travel", "grocery", "retail", "restaurant"]
+    LOCATIONS = [
+        "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia",
+        "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville",
+        "San Francisco", "Columbus", "Fort Worth", "Charlotte", "Seattle", "Denver",
+        "Washington", "Boston", "El Paso", "Detroit", "Nashville", "Portland",
+        "Tokyo", "Toronto", "London", "Sydney", "Berlin", "Dubai", "Singapore", "Paris"
+    ]
+    CHANNELS = ["mobile", "atm", "pos", "web"]
+    
+    def __init__(self, base_transactions: dict):
+        """Initialize with base transactions for pattern learning"""
+        self.base_transactions = base_transactions
+        self.transaction_counter = max([int(tid[1:]) for tid in base_transactions.keys() if tid[1:].isdigit()], default=0)
+        self.account_pool = self._extract_accounts()
+    
+    def _extract_accounts(self) -> List[str]:
+        """Extract unique accounts from base transactions"""
+        accounts = set()
+        for txn in self.base_transactions.values():
+            accounts.add(txn.from_account)
+            accounts.add(txn.to_account)
+        return list(accounts)
+    
+    def generate_transaction(self, fraud_probability: float = 0.1) -> Transaction:
+        """Generate a realistic transaction"""
+        self.transaction_counter += 1
+        txn_id = f"L{self.transaction_counter:06d}"  # Live transaction ID
+        
+        # Determine if fraud based on probability and patterns
+        is_fraud = random.random() < fraud_probability
+        
+        # Generate realistic amount (skewed distribution)
+        if is_fraud:
+            # Fraud transactions tend to be larger
+            amount = random.uniform(500, 5000) if random.random() < 0.7 else random.uniform(50, 500)
+        else:
+            # Legitimate transactions are usually smaller
+            amount = random.uniform(10, 500) if random.random() < 0.8 else random.uniform(500, 2000)
+        
+        # Select transaction type
+        transaction_type = random.choice(self.TRANSACTION_TYPES)
+        
+        # Select category (fraud tends to use high-risk categories)
+        if is_fraud and random.random() < 0.6:
+            category = random.choice(["online", "other"])
+        else:
+            category = random.choice(self.CATEGORIES)
+        
+        # Select location (fraud tends to use non-US locations)
+        if is_fraud and random.random() < 0.5:
+            location = random.choice([loc for loc in self.LOCATIONS if loc not in [
+                "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia"
+            ]])
+        else:
+            location = random.choice(self.LOCATIONS)
+        
+        # Select channel
+        channel = random.choice(self.CHANNELS)
+        
+        # Select accounts
+        from_account = random.choice(self.account_pool)
+        to_account = random.choice([acc for acc in self.account_pool if acc != from_account])
+        
+        # Generate timestamp (current time)
+        timestamp = datetime.utcnow().isoformat()
+        
+        return Transaction(
+            id=txn_id,
+            timestamp=timestamp,
+            from_account=from_account,
+            to_account=to_account,
+            amount=round(amount, 2),
+            transaction_type=transaction_type,
+            category=category,
+            location=location,
+            channel=channel,
+            is_fraud=is_fraud
+        )
+
+
+# Global state for live feed
+LIVE_FEED_ACTIVE = False
+LIVE_FEED_QUEUE = deque(maxlen=1000)  # Store last 1000 transactions
+LIVE_FEED_STATS = {
+    "total_streamed": 0,
+    "fraud_detected": 0,
+    "legit_approved": 0,
+    "needs_review": 0,
+    "start_time": None
+}
+live_feed_index = 0
+live_feed_task = None
+
+
+async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.1):
+    """Background worker that streams existing transactions and evaluates them"""
+    global LIVE_FEED_ACTIVE, LIVE_FEED_QUEUE, LIVE_FEED_STATS, live_feed_index
+    
+    # Get all transaction IDs and shuffle them
+    transaction_ids = list(TRANSACTIONS.keys())
+    random.shuffle(transaction_ids)
+    
+    LIVE_FEED_STATS["start_time"] = datetime.utcnow().isoformat()
+    LIVE_FEED_STATS["total_streamed"] = 0
+    LIVE_FEED_STATS["fraud_detected"] = 0
+    LIVE_FEED_STATS["legit_approved"] = 0
+    LIVE_FEED_STATS["needs_review"] = 0
+    
+    live_feed_index = 0
+    
+    while LIVE_FEED_ACTIVE:
+        try:
+            # Get next transaction (loop back to start if we reach the end)
+            if live_feed_index >= len(transaction_ids):
+                live_feed_index = 0
+                random.shuffle(transaction_ids)  # Re-shuffle for variety
+            
+            txn_id = transaction_ids[live_feed_index]
+            txn = TRANSACTIONS[txn_id]
+            live_feed_index += 1
+            
+            # Evaluate with rule-based system
+            decision = analyze_transaction(txn)
+            
+            # Try RL model if available
+            rl_decision = None
+            rl_confidence = None
+            try:
+                rl_decision, rl_confidence = rl_manager.predict(txn)
+            except:
+                pass
+            
+            # Create result
+            result = {
+                "transaction": txn.dict(),
+                "rule_based": {
+                    "decision": decision.decision,
+                    "confidence": decision.confidence,
+                    "flags": decision.flags,
+                    "explanation": decision.explanation
+                },
+                "rl_model": {
+                    "decision": rl_decision,
+                    "confidence": rl_confidence,
+                    "available": rl_decision is not None
+                },
+                "true_label": "FRAUD" if txn.is_fraud else "LEGIT",
+                "timestamp": txn.timestamp
+            }
+            
+            # Add to queue
+            LIVE_FEED_QUEUE.append(result)
+            LIVE_FEED_STATS["total_streamed"] += 1
+            
+            # Update stats
+            if decision.decision == "FRAUD":
+                LIVE_FEED_STATS["fraud_detected"] += 1
+            elif decision.decision == "LEGIT":
+                LIVE_FEED_STATS["legit_approved"] += 1
+            elif decision.decision == "NEEDS_REVIEW":
+                LIVE_FEED_STATS["needs_review"] += 1
+            
+            # Wait before next transaction
+            await asyncio.sleep(interval_seconds)
+            
+        except Exception as e:
+            print(f"Error in live feed worker: {e}")
+            await asyncio.sleep(interval_seconds)
 
 
 # ============ FASTAPI APP ============
@@ -1644,6 +1825,112 @@ def compare_methods(txn_id: str) -> dict:
             "available": rl_available
         },
         "agreement": rule_result.decision == rl_decision if rl_available else None
+    }
+
+
+# ============ LIVE FEED ENDPOINTS ============
+
+@app.post("/live-feed/start")
+async def start_live_feed(
+    interval_seconds: float = 0.33,
+    current_user: dict = Depends(get_current_user)
+):
+    """Start the live transaction feed (streams existing transactions)"""
+    global LIVE_FEED_ACTIVE, live_feed_task
+    
+    if LIVE_FEED_ACTIVE:
+        return {"status": "already_running", "message": "Live feed is already running"}
+    
+    LIVE_FEED_ACTIVE = True
+    
+    # Start background task (fraud_rate parameter not used anymore)
+    live_feed_task = asyncio.create_task(live_feed_worker(interval_seconds, 0.1))
+    
+    return {
+        "status": "started",
+        "interval_seconds": interval_seconds,
+        "message": f"Live feed started: streaming transactions every {interval_seconds}s"
+    }
+
+
+@app.post("/live-feed/stop")
+def stop_live_feed(current_user: dict = Depends(get_current_user)):
+    """Stop the live transaction feed"""
+    global LIVE_FEED_ACTIVE, live_feed_task
+    
+    if not LIVE_FEED_ACTIVE:
+        return {"status": "not_running", "message": "Live feed is not running"}
+    
+    LIVE_FEED_ACTIVE = False
+    
+    # Cancel task if running
+    if live_feed_task and not live_feed_task.done():
+        live_feed_task.cancel()
+    
+    return {"status": "stopped", "message": "Live feed stopped"}
+
+
+@app.get("/live-feed/status")
+def get_live_feed_status(current_user: dict = Depends(get_current_user)):
+    """Get live feed status and statistics"""
+    global LIVE_FEED_ACTIVE, LIVE_FEED_STATS, LIVE_FEED_QUEUE
+    
+    return {
+        "active": LIVE_FEED_ACTIVE,
+        "stats": LIVE_FEED_STATS.copy(),
+        "queue_size": len(LIVE_FEED_QUEUE),
+        "latest_transactions": list(LIVE_FEED_QUEUE)[-10:] if LIVE_FEED_QUEUE else []
+    }
+
+
+@app.get("/live-feed/stream")
+async def stream_live_feed(current_user: dict = Depends(get_current_user)):
+    """Stream live transactions using Server-Sent Events (SSE)"""
+    global LIVE_FEED_QUEUE
+    
+    async def event_generator():
+        """Generate SSE events"""
+        last_index = len(LIVE_FEED_QUEUE)
+        
+        while True:
+            # Check for new transactions
+            current_size = len(LIVE_FEED_QUEUE)
+            
+            if current_size > last_index:
+                # Send new transactions
+                for i in range(last_index, current_size):
+                    transaction = list(LIVE_FEED_QUEUE)[i]
+                    yield f"data: {json.dumps(transaction)}\n\n"
+                last_index = current_size
+            
+            # Send heartbeat to keep connection alive
+            yield ": heartbeat\n\n"
+            
+            await asyncio.sleep(0.5)  # Check every 500ms
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        }
+    )
+
+
+@app.get("/live-feed/recent")
+def get_recent_transactions(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get recent transactions from the live feed"""
+    global LIVE_FEED_QUEUE
+    
+    recent = list(LIVE_FEED_QUEUE)[-limit:] if LIVE_FEED_QUEUE else []
+    return {
+        "count": len(recent),
+        "transactions": recent
     }
 
 

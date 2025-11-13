@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fraud Detection Co-Pilot - INFO 492</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
       * {
         box-sizing: border-box;
@@ -462,6 +463,136 @@
         font-size: 14px;
         margin-right: 12px;
       }
+
+      /* YubiKey Device Animation */
+      .yubikey-device {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 24px;
+        padding: 20px;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+      }
+
+      .yubikey-body {
+        position: relative;
+        width: 120px;
+        height: 40px;
+        background: linear-gradient(135deg, #1f2328 0%, #161b22 100%);
+        border: 2px solid #30363d;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease;
+      }
+
+      .yubikey-body:hover {
+        transform: scale(1.05);
+      }
+
+      .yubikey-button {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, #2d3339 0%, #1f2328 100%);
+        border: 2px solid #484f58;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.2s ease;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .yubikey-button-inner {
+        width: 20px;
+        height: 20px;
+        background: radial-gradient(circle, #484f58 0%, #1f2328 100%);
+        border-radius: 50%;
+        transition: all 0.2s ease;
+      }
+
+      .yubikey-button.pressing {
+        transform: scale(0.9);
+        box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.5);
+      }
+
+      .yubikey-button.pressing .yubikey-button-inner {
+        transform: scale(0.8);
+        background: radial-gradient(circle, #58a6ff 0%, #1f2328 100%);
+      }
+
+      .yubikey-indicator {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        background: #484f58;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+        opacity: 0;
+      }
+
+      .yubikey-indicator.active {
+        background: #2ea043;
+        opacity: 1;
+        box-shadow: 0 0 8px #2ea043, 0 0 16px #2ea043;
+        animation: pulse 1s ease-in-out infinite;
+      }
+
+      .yubikey-indicator.generating {
+        background: #9e6a03;
+        opacity: 1;
+        box-shadow: 0 0 8px #9e6a03, 0 0 16px #9e6a03;
+        animation: pulse 0.5s ease-in-out infinite;
+      }
+
+      .yubikey-indicator.error {
+        background: #da3633;
+        opacity: 1;
+        box-shadow: 0 0 8px #da3633, 0 0 16px #da3633;
+        animation: pulse 0.3s ease-in-out 3;
+      }
+
+      @keyframes pulse {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.2);
+          opacity: 0.8;
+        }
+      }
+
+      .yubikey-label {
+        margin-top: 12px;
+        color: #8b949e;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .yubikey-device.generating .yubikey-body {
+        animation: shake 0.5s ease-in-out;
+      }
+
+      @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
+      }
+
+      @media (max-width: 768px) {
+        .confusion-matrix-container {
+          grid-template-columns: 1fr !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -469,6 +600,18 @@
     <div id="loginModal" class="login-modal">
       <div class="login-content">
         <h2 class="login-title">🔐 YubiKey Login</h2>
+        
+        <!-- Animated YubiKey Device -->
+        <div id="yubikeyDevice" class="yubikey-device">
+          <div class="yubikey-body">
+            <div class="yubikey-button" id="yubikeyButton">
+              <div class="yubikey-button-inner"></div>
+            </div>
+            <div class="yubikey-indicator" id="yubikeyIndicator"></div>
+          </div>
+          <div class="yubikey-label">Press the button on your YubiKey</div>
+        </div>
+        
         <div class="form-group">
           <label>YubiKey ID:</label>
           <input type="text" id="yubikeyIdInput" placeholder="admin | analyst | viewer" />
@@ -570,9 +713,64 @@
         </div>
       </div>
 
+      <!-- Live Feed -->
+      <div class="card">
+        <h2>📡 Live Transaction Feed</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          Stream your existing 1000 transactions and evaluate them in real-time using the selected analysis method above
+        </div>
+        <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+          <div>
+            <label style="display: block; margin-bottom: 4px; color: #8b949e; font-size: 12px;">Transactions/Second:</label>
+            <select id="liveFeedInterval" style="width: 140px; padding: 6px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px;">
+              <option value="0.25">4 per second</option>
+              <option value="0.33" selected>3 per second</option>
+              <option value="0.5">2 per second</option>
+              <option value="1.0">1 per second</option>
+              <option value="2.0">1 every 2 sec</option>
+            </select>
+          </div>
+          <div style="padding: 8px 12px; background: #161b22; border: 1px solid #30363d; border-radius: 6px;">
+            <span style="color: #8b949e; font-size: 12px;">Using: </span>
+            <span id="liveFeedMethod" style="color: #58a6ff; font-weight: 600;">Rule-Based</span>
+          </div>
+        </div>
+        <div class="controls">
+          <button id="startLiveFeedBtn" style="background: #238636;">▶ Start Live Feed</button>
+          <button id="stopLiveFeedBtn" class="secondary" style="display: none; background: #da3633;">⏹ Stop Feed</button>
+          <span id="liveFeedStatus" style="color: #8b949e;"></span>
+        </div>
+        <div id="liveFeedStats" style="margin-top: 16px; padding: 12px; background: #161b22; border-radius: 6px; border: 1px solid #30363d; display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+          <div>
+            <div style="color: #8b949e; font-size: 12px;">Total Streamed</div>
+            <div id="feedStatTotal" style="color: #e6edf3; font-size: 20px; font-weight: 600;">0</div>
+          </div>
+            <div>
+              <div style="color: #8b949e; font-size: 12px;">Fraud Detected</div>
+              <div id="feedStatFraud" style="color: #da3633; font-size: 20px; font-weight: 600;">0</div>
+            </div>
+            <div>
+              <div style="color: #8b949e; font-size: 12px;">Legit Approved</div>
+              <div id="feedStatLegit" style="color: #2ea043; font-size: 20px; font-weight: 600;">0</div>
+            </div>
+            <div>
+              <div style="color: #8b949e; font-size: 12px;">Needs Review</div>
+              <div id="feedStatReview" style="color: #9e6a03; font-size: 20px; font-weight: 600;">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Performance Metrics -->
       <div class="card">
-        <h2>📊 Performance Metrics</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <h2 style="margin: 0;">📊 Performance Metrics</h2>
+            <span id="liveMetricsIndicator" style="display: none; padding: 4px 8px; background: #238636; color: #fff; font-size: 11px; border-radius: 4px; font-weight: 600;">● LIVE</span>
+          </div>
+          <button id="exportStatsBtn" class="secondary" style="margin-left: auto;">📥 Export Statistics</button>
+        </div>
 
         <!-- Thresholds Status -->
         <div class="thresholds">
@@ -613,34 +811,47 @@
         <h3 style="margin-top: 20px; margin-bottom: 12px; color: #8b949e">
           Confusion Matrix
         </h3>
-        <table>
-          <tr>
-            <td>True Positives (TP)</td>
-            <td id="tp">-</td>
-            <td style="color: #8b949e; font-size: 12px">
-              Correctly identified fraud
-            </td>
-          </tr>
-          <tr>
-            <td>False Positives (FP)</td>
-            <td id="fp">-</td>
-            <td style="color: #8b949e; font-size: 12px">
-              Legitimate flagged as fraud
-            </td>
-          </tr>
-          <tr>
-            <td>False Negatives (FN)</td>
-            <td id="fn">-</td>
-            <td style="color: #8b949e; font-size: 12px">Fraud missed</td>
-          </tr>
-          <tr>
-            <td>True Negatives (TN)</td>
-            <td id="tn">-</td>
-            <td style="color: #8b949e; font-size: 12px">
-              Correctly identified legitimate
-            </td>
-          </tr>
-        </table>
+        
+        <!-- Pie Chart Container -->
+        <div class="confusion-matrix-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+          <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px;">
+            <h4 style="color: #58a6ff; margin-bottom: 12px; font-size: 14px;">Decision Distribution</h4>
+            <div style="position: relative; height: 300px;">
+              <canvas id="confusionMatrixChart"></canvas>
+            </div>
+          </div>
+          <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px;">
+            <h4 style="color: #58a6ff; margin-bottom: 12px; font-size: 14px;">Confusion Matrix Details</h4>
+            <table style="width: 100%;">
+              <tr>
+                <td style="color: #8b949e; padding: 8px 0;">True Positives (TP)</td>
+                <td id="tp" style="font-weight: 600; padding: 8px 0;">-</td>
+                <td style="color: #8b949e; font-size: 12px; padding: 8px 0;">
+                  Correctly identified fraud
+                </td>
+              </tr>
+              <tr>
+                <td style="color: #8b949e; padding: 8px 0;">False Positives (FP)</td>
+                <td id="fp" style="font-weight: 600; padding: 8px 0;">-</td>
+                <td style="color: #8b949e; font-size: 12px; padding: 8px 0;">
+                  Legitimate flagged as fraud
+                </td>
+              </tr>
+              <tr>
+                <td style="color: #8b949e; padding: 8px 0;">False Negatives (FN)</td>
+                <td id="fn" style="font-weight: 600; padding: 8px 0;">-</td>
+                <td style="color: #8b949e; font-size: 12px; padding: 8px 0;">Fraud missed</td>
+              </tr>
+              <tr>
+                <td style="color: #8b949e; padding: 8px 0;">True Negatives (TN)</td>
+                <td id="tn" style="font-weight: 600; padding: 8px 0;">-</td>
+                <td style="color: #8b949e; font-size: 12px; padding: 8px 0;">
+                  Correctly identified legitimate
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- Results Table -->
@@ -753,12 +964,16 @@
     <script>
       const API = "https://attu2.cs.washington.edu:8000";
 
+      // Chart instance
+      let confusionMatrixChart = null;
+
       // Elements
       const testBtn = document.getElementById("testBtn");
       const batchBtn = document.getElementById("batchBtn");
       const singleBtn = document.getElementById("singleBtn");
       const singleInput = document.getElementById("singleInput");
       const refreshKpisBtn = document.getElementById("refreshKpisBtn");
+      const exportStatsBtn = document.getElementById("exportStatsBtn");
       const transactionDetails = document.getElementById("transactionDetails");
       const searchInput = document.getElementById("searchInput");
       const decisionFilter = document.getElementById("decisionFilter");
@@ -776,6 +991,19 @@
       const logoutBtn = document.getElementById("logoutBtn");
       const mainContent = document.getElementById("mainContent");
       const currentUserInfo = document.getElementById("currentUserInfo");
+      
+      // Live Feed elements
+      const startLiveFeedBtn = document.getElementById("startLiveFeedBtn");
+      const stopLiveFeedBtn = document.getElementById("stopLiveFeedBtn");
+      const liveFeedStatus = document.getElementById("liveFeedStatus");
+      const liveFeedStats = document.getElementById("liveFeedStats");
+      const liveFeedInterval = document.getElementById("liveFeedInterval");
+      const liveFeedMethod = document.getElementById("liveFeedMethod");
+      const feedStatTotal = document.getElementById("feedStatTotal");
+      const feedStatFraud = document.getElementById("feedStatFraud");
+      const feedStatLegit = document.getElementById("feedStatLegit");
+      const feedStatReview = document.getElementById("feedStatReview");
+      const liveMetricsIndicator = document.getElementById("liveMetricsIndicator");
       const modelsCard = document.getElementById("modelsCard");
       const refreshModelsBtn = document.getElementById("refreshModelsBtn");
       const trainModelBtn = document.getElementById("trainModelBtn");
@@ -803,6 +1031,12 @@
       let storedModels = [];
       let currentPage = 1;
       const resultsPerPage = 20;
+      
+      // Live Feed State
+      let liveFeedActive = false;
+      let liveFeedEventSource = null;
+      let liveFeedStatsInterval = null;
+      let currentMetrics = null; // Store current metrics for export
 
       // Show alert
       function showAlert(message, type = "error") {
@@ -900,6 +1134,9 @@
 
       // Update metrics display
       function updateMetrics(metrics) {
+        // Store metrics for export
+        currentMetrics = metrics;
+        
         const precisionPct = metrics.precision * 100;
         const recallPct = metrics.recall * 100;
         const refusalPct = metrics.refusal_rate * 100;
@@ -946,6 +1183,9 @@
         document.getElementById("fn").textContent = metrics.fn;
         document.getElementById("tn").textContent = metrics.tn;
 
+        // Update pie chart
+        updateConfusionMatrixChart(metrics);
+
         // Show overall status
         const allPass =
           precisionPct >= 75 && recallPct >= 80 && refusalPct <= 15;
@@ -959,19 +1199,124 @@
         }
       }
 
+      // Update confusion matrix pie chart
+      function updateConfusionMatrixChart(metrics) {
+        const ctx = document.getElementById('confusionMatrixChart');
+        if (!ctx) return;
+
+        const tp = metrics.tp || 0;
+        const fp = metrics.fp || 0;
+        const fn = metrics.fn || 0;
+        const tn = metrics.tn || 0;
+
+        // Destroy existing chart if it exists
+        if (confusionMatrixChart) {
+          confusionMatrixChart.destroy();
+        }
+
+        // Create new chart
+        confusionMatrixChart = new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: [
+              `True Positives (${tp})`,
+              `False Positives (${fp})`,
+              `False Negatives (${fn})`,
+              `True Negatives (${tn})`
+            ],
+            datasets: [{
+              data: [tp, fp, fn, tn],
+              backgroundColor: [
+                '#2ea043', // Green for TP (correct fraud detection)
+                '#da3633', // Red for FP (false fraud alert)
+                '#9e6a03', // Orange for FN (missed fraud)
+                '#58a6ff'  // Blue for TN (correct legitimate)
+              ],
+              borderColor: '#0d1117',
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  color: '#e6edf3',
+                  font: {
+                    size: 12
+                  },
+                  padding: 12,
+                  usePointStyle: true
+                }
+              },
+              tooltip: {
+                backgroundColor: '#161b22',
+                titleColor: '#e6edf3',
+                bodyColor: '#e6edf3',
+                borderColor: '#30363d',
+                borderWidth: 1,
+                padding: 12,
+                callbacks: {
+                  label: function(context) {
+                    const label = context.label || '';
+                    const value = context.parsed || 0;
+                    const total = tp + fp + fn + tn;
+                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                    return `${label}: ${value} (${percentage}%)`;
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
+
 
       // Show transaction details
       async function showTransactionDetails(txnId) {
         try {
+          // Show loading state
+          transactionDetails.innerHTML = '<div style="padding: 20px; text-align: center; color: #8b949e;">Loading transaction details...</div>';
+          transactionDetails.classList.remove("hidden");
+          
           const token = sessionStorage.getItem('session_token');
+          const headers = {};
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
           const res = await fetch(`${API}/transaction/${txnId}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: headers
           });
-          if (!res.ok) throw new Error("Transaction not found");
+          
+          if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`Transaction not found: ${res.status} ${errorText}`);
+          }
           
           const data = await res.json();
           const txn = data.transaction;
           const analysis = data.analysis;
+          
+          // Convert is_fraud to label
+          const trueLabel = txn.is_fraud ? 'FRAUD' : 'LEGIT';
+          
+          // Safely format timestamp
+          const formatTimestamp = (ts) => {
+            try {
+              return new Date(ts).toLocaleString();
+            } catch (e) {
+              return ts || 'N/A';
+            }
+          };
+          
+          // Safely format amount
+          const formatAmount = (amt) => {
+            if (amt == null || isNaN(amt)) return 'N/A';
+            return `$${parseFloat(amt).toFixed(2)}`;
+          };
           
           transactionDetails.innerHTML = `
             <div class="detail-section">
@@ -979,39 +1324,43 @@
               <div class="detail-grid">
                 <div class="detail-item">
                   <div class="detail-label">ID</div>
-                  <div class="detail-value">${txn.id}</div>
+                  <div class="detail-value">${txn.id || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
                   <div class="detail-label">Amount</div>
-                  <div class="detail-value">$${txn.amount.toFixed(2)}</div>
+                  <div class="detail-value">${formatAmount(txn.amount)}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Merchant</div>
-                  <div class="detail-value">${txn.merchant}</div>
+                  <div class="detail-label">Timestamp</div>
+                  <div class="detail-value">${formatTimestamp(txn.timestamp)}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Device ID</div>
-                  <div class="detail-value">${txn.device_id}</div>
+                  <div class="detail-label">Transaction Type</div>
+                  <div class="detail-value">${txn.transaction_type || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Geography</div>
-                  <div class="detail-value">${txn.geo}</div>
+                  <div class="detail-label">Category</div>
+                  <div class="detail-value">${txn.category || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Velocity (30d)</div>
-                  <div class="detail-value">${txn.velocity_30d}</div>
+                  <div class="detail-label">Location</div>
+                  <div class="detail-value">${txn.location || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Avg Amount (30d)</div>
-                  <div class="detail-value">$${txn.avg_amount_30d.toFixed(2)}</div>
+                  <div class="detail-label">Channel</div>
+                  <div class="detail-value">${txn.channel || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Merchant Known</div>
-                  <div class="detail-value">${txn.merchant_known ? 'Yes' : 'No'}</div>
+                  <div class="detail-label">From Account</div>
+                  <div class="detail-value">${txn.from_account || 'N/A'}</div>
+                </div>
+                <div class="detail-item">
+                  <div class="detail-label">To Account</div>
+                  <div class="detail-value">${txn.to_account || 'N/A'}</div>
                 </div>
                 <div class="detail-item">
                   <div class="detail-label">True Label</div>
-                  <div class="detail-value">${txn.label}</div>
+                  <div class="detail-value">${trueLabel}</div>
                 </div>
               </div>
             </div>
@@ -1071,9 +1420,15 @@
           // Scroll to details
           transactionDetails.scrollIntoView({ behavior: 'smooth' });
         } catch (err) {
-          showAlert("Failed to load transaction details: " + err.message);
+          console.error("Error loading transaction details:", err);
+          transactionDetails.innerHTML = `<div style="padding: 20px; color: #da3633;">Failed to load transaction details: ${err.message}</div>`;
+          transactionDetails.classList.remove("hidden");
+          showAlert("Failed to load transaction details: " + err.message, "error");
         }
       }
+      
+      // Make function globally accessible
+      window.showTransactionDetails = showTransactionDetails;
 
       // Filter results
       function filterResults() {
@@ -1298,6 +1653,398 @@
         showAlert("KPIs refreshed!", "success");
       });
 
+      // ============ LIVE FEED FUNCTIONALITY ============
+
+      async function startLiveFeed() {
+        const interval = parseFloat(liveFeedInterval.value);
+        const method = analysisMethod.value; // Use selected analysis method
+
+        if (interval < 0.1 || interval > 10) {
+          showAlert("Interval must be between 0.1 and 10 seconds");
+          return;
+        }
+
+        try {
+          const token = sessionStorage.getItem('session_token');
+          
+          if (!token) {
+            showAlert("Please login first to use the live feed");
+            return;
+          }
+          
+          const response = await fetch(
+            `${API}/live-feed/start?interval_seconds=${interval}`,
+            {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` }
+            }
+          );
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              showAlert("Session expired. Please login again.");
+              return;
+            }
+            throw new Error("Failed to start live feed");
+          }
+
+          const data = await response.json();
+          liveFeedActive = true;
+
+          // Update UI
+          const methodLabel = method === 'rl' ? 'RL Model' : 'Rule-Based';
+          document.getElementById('liveFeedMethod').textContent = methodLabel;
+          
+          const rate = interval < 1 
+            ? `${(1/interval).toFixed(1)}/sec` 
+            : `1 every ${interval}s`;
+          
+          startLiveFeedBtn.style.display = 'none';
+          stopLiveFeedBtn.style.display = 'inline-block';
+          liveFeedStats.style.display = 'block';
+          liveFeedStatus.textContent = `Active (${rate})`;
+          liveFeedStatus.style.color = '#2ea043';
+          
+          // Show live metrics indicator
+          liveMetricsIndicator.style.display = 'inline-block';
+
+          // Start streaming with selected method
+          startLiveFeedStream(method);
+
+          // Poll stats every second for faster updates
+          liveFeedStatsInterval = setInterval(updateLiveFeedStats, 1000);
+
+          showAlert(`Live feed started using ${methodLabel}!`, "success");
+        } catch (err) {
+          showAlert("Failed to start live feed: " + err.message);
+        }
+      }
+
+      async function stopLiveFeed() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/live-feed/stop`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to stop live feed");
+          }
+
+          liveFeedActive = false;
+
+          // Stop streaming
+          if (liveFeedEventSource) {
+            liveFeedEventSource.close();
+            liveFeedEventSource = null;
+          }
+
+          // Stop stats polling
+          if (liveFeedStatsInterval) {
+            clearInterval(liveFeedStatsInterval);
+            liveFeedStatsInterval = null;
+          }
+
+          // Update UI
+          startLiveFeedBtn.style.display = 'inline-block';
+          stopLiveFeedBtn.style.display = 'none';
+          liveFeedStatus.textContent = 'Stopped';
+          liveFeedStatus.style.color = '#8b949e';
+          
+          // Hide live metrics indicator
+          liveMetricsIndicator.style.display = 'none';
+
+          // Final metrics update
+          updateLivePerformanceMetrics();
+
+          showAlert("Live feed stopped", "success");
+        } catch (err) {
+          showAlert("Failed to stop live feed: " + err.message);
+        }
+      }
+
+      function startLiveFeedStream(method = 'rule') {
+        const token = sessionStorage.getItem('session_token');
+        let lastSeenId = null;
+        
+        // Poll for recent transactions every 0.5 seconds for faster updates
+        const pollInterval = setInterval(async () => {
+          if (!liveFeedActive) {
+            clearInterval(pollInterval);
+            return;
+          }
+
+          try {
+            const response = await fetch(`${API}/live-feed/recent?limit=20`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+            if (data.transactions && data.transactions.length > 0) {
+              // Filter to only new transactions we haven't seen yet
+              let newTransactions = data.transactions;
+              
+              if (lastSeenId) {
+                const lastSeenIndex = newTransactions.findIndex(t => t.transaction.id === lastSeenId);
+                if (lastSeenIndex > 0) {
+                  newTransactions = newTransactions.slice(0, lastSeenIndex);
+                } else if (lastSeenIndex === 0) {
+                  newTransactions = [];
+                }
+              }
+
+              if (newTransactions.length > 0) {
+                // Update last seen ID
+                lastSeenId = newTransactions[0].transaction.id;
+
+                // Use the selected method's results
+                const mappedTransactions = newTransactions.map(t => {
+                  const result = method === 'rl' && t.rl_model.available 
+                    ? t.rl_model 
+                    : t.rule_based;
+                  
+                  return {
+                    txn_id: t.transaction.id,
+                    decision: result.decision,
+                    confidence: result.confidence,
+                    flags: result.flags || [],
+                    true_label: t.true_label
+                  };
+                });
+
+                // Prepend new transactions (most recent first)
+                allResults = [...mappedTransactions, ...allResults];
+                filteredResults = [...mappedTransactions, ...filteredResults];
+                
+                // Keep only last 1000
+                if (allResults.length > 1000) {
+                  allResults = allResults.slice(0, 1000);
+                }
+                if (filteredResults.length > 1000) {
+                  filteredResults = filteredResults.slice(0, 1000);
+                }
+
+                currentPage = 1;
+                updateResultsTable(filteredResults);
+                
+                // Update performance metrics immediately when new transactions arrive
+                updateLivePerformanceMetrics();
+              }
+            }
+          } catch (err) {
+            console.error("Failed to poll live feed:", err);
+          }
+        }, 500); // Poll every 500ms for smoother updates
+      }
+
+      async function updateLiveFeedStats() {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/live-feed/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (!response.ok) return;
+
+          const data = await response.json();
+          if (data.stats) {
+            feedStatTotal.textContent = data.stats.total_streamed || 0;
+            feedStatFraud.textContent = data.stats.fraud_detected || 0;
+            feedStatLegit.textContent = data.stats.legit_approved || 0;
+            feedStatReview.textContent = data.stats.needs_review || 0;
+          }
+
+          // Update performance metrics based on current results
+          updateLivePerformanceMetrics();
+        } catch (err) {
+          console.error("Failed to update live feed stats:", err);
+        }
+      }
+
+      function updateLivePerformanceMetrics() {
+        // Calculate metrics from all current results when live feed is active
+        if (!liveFeedActive || allResults.length === 0) return;
+        
+        const liveResults = allResults;
+
+        // Calculate metrics
+        let tp = 0, fp = 0, tn = 0, fn = 0;
+        let needsReview = 0;
+
+        liveResults.forEach(result => {
+          const decision = result.decision;
+          const trueLabel = result.true_label;
+
+          if (decision === "NEEDS_REVIEW") {
+            needsReview++;
+            return;
+          }
+
+          if (decision === "FRAUD" && trueLabel === "FRAUD") tp++;
+          else if (decision === "FRAUD" && trueLabel === "LEGIT") fp++;
+          else if (decision === "LEGIT" && trueLabel === "LEGIT") tn++;
+          else if (decision === "LEGIT" && trueLabel === "FRAUD") fn++;
+        });
+
+        const totalDecided = tp + fp + tn + fn;
+        const totalFraud = tp + fn;
+        const totalLegit = tn + fp;
+
+        // Calculate metrics
+        const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+        const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+        const refusalRate = liveResults.length > 0 ? needsReview / liveResults.length : 0;
+
+        // Store for export
+        currentMetrics = {
+          precision,
+          recall,
+          refusal_rate: refusalRate,
+          confusion_matrix: { tp, fp, tn, fn },
+          true_positives: tp,
+          false_positives: fp,
+          true_negatives: tn,
+          false_negatives: fn,
+          needs_review: needsReview,
+          total_transactions: liveResults.length,
+          total_decided: totalDecided
+        };
+
+        // Update display
+        updateMetrics(currentMetrics);
+      }
+
+      // Event listeners for live feed
+      startLiveFeedBtn.addEventListener("click", startLiveFeed);
+      stopLiveFeedBtn.addEventListener("click", stopLiveFeed);
+
+      // Export Statistics
+      function exportStatistics() {
+        if (!currentMetrics) {
+          showAlert("No statistics available to export. Please run an analysis first.", "warning");
+          return;
+        }
+
+        const precisionPct = currentMetrics.precision * 100;
+        const recallPct = currentMetrics.recall * 100;
+        const refusalPct = currentMetrics.refusal_rate * 100;
+        
+        // Create comprehensive statistics object
+        const stats = {
+          exportDate: new Date().toISOString(),
+          systemInfo: {
+            name: "Fraud Detection Co-Pilot",
+            version: "1.0",
+            analysisMethod: analysisMethod ? analysisMethod.value : "rule"
+          },
+          performanceMetrics: {
+            precision: {
+              value: precisionPct.toFixed(2) + "%",
+              raw: currentMetrics.precision,
+              threshold: 75,
+              status: precisionPct >= 75 ? "PASS" : "FAIL"
+            },
+            recall: {
+              value: recallPct.toFixed(2) + "%",
+              raw: currentMetrics.recall,
+              threshold: 80,
+              status: recallPct >= 80 ? "PASS" : "FAIL"
+            },
+            refusalRate: {
+              value: refusalPct.toFixed(2) + "%",
+              raw: currentMetrics.refusal_rate,
+              threshold: 15,
+              status: refusalPct <= 15 ? "PASS" : "FAIL"
+            },
+            totalCases: currentMetrics.total
+          },
+          confusionMatrix: {
+            truePositives: {
+              count: currentMetrics.tp,
+              description: "Correctly identified fraud"
+            },
+            falsePositives: {
+              count: currentMetrics.fp,
+              description: "Legitimate flagged as fraud"
+            },
+            falseNegatives: {
+              count: currentMetrics.fn,
+              description: "Fraud missed"
+            },
+            trueNegatives: {
+              count: currentMetrics.tn,
+              description: "Correctly identified legitimate"
+            }
+          },
+          summary: {
+            overallStatus: (precisionPct >= 75 && recallPct >= 80 && refusalPct <= 15) ? "ALL_THRESHOLDS_MET" : "THRESHOLDS_NOT_MET",
+            accuracy: currentMetrics.total > 0 ? (((currentMetrics.tp + currentMetrics.tn) / currentMetrics.total) * 100).toFixed(2) + "%" : "N/A"
+          }
+        };
+
+        // Create CSV content
+        const csvContent = [
+          "Fraud Detection Co-Pilot - Statistics Export",
+          `Export Date: ${stats.exportDate}`,
+          "",
+          "Performance Metrics",
+          "Metric,Value,Threshold,Status",
+          `Precision,${precisionPct.toFixed(2)}%,75%,${precisionPct >= 75 ? "PASS" : "FAIL"}`,
+          `Recall,${recallPct.toFixed(2)}%,80%,${recallPct >= 80 ? "PASS" : "FAIL"}`,
+          `Refusal Rate,${refusalPct.toFixed(2)}%,15%,${refusalPct <= 15 ? "PASS" : "FAIL"}`,
+          `Total Cases,${currentMetrics.total},N/A,N/A`,
+          "",
+          "Confusion Matrix",
+          "Type,Count,Description",
+          `True Positives,${currentMetrics.tp},Correctly identified fraud`,
+          `False Positives,${currentMetrics.fp},Legitimate flagged as fraud`,
+          `False Negatives,${currentMetrics.fn},Fraud missed`,
+          `True Negatives,${currentMetrics.tn},Correctly identified legitimate`,
+          "",
+          "Summary",
+          `Overall Status,${stats.summary.overallStatus}`,
+          `Accuracy,${stats.summary.accuracy}`
+        ].join("\n");
+
+        // Create JSON content
+        const jsonContent = JSON.stringify(stats, null, 2);
+
+        // Create download links
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+        
+        // Download CSV
+        const csvBlob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const csvUrl = URL.createObjectURL(csvBlob);
+        const csvLink = document.createElement("a");
+        csvLink.href = csvUrl;
+        csvLink.download = `fraud-detection-stats-${timestamp}.csv`;
+        csvLink.style.display = "none";
+        document.body.appendChild(csvLink);
+        csvLink.click();
+        document.body.removeChild(csvLink);
+        URL.revokeObjectURL(csvUrl);
+
+        // Download JSON
+        const jsonBlob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" });
+        const jsonUrl = URL.createObjectURL(jsonBlob);
+        const jsonLink = document.createElement("a");
+        jsonLink.href = jsonUrl;
+        jsonLink.download = `fraud-detection-stats-${timestamp}.json`;
+        jsonLink.style.display = "none";
+        document.body.appendChild(jsonLink);
+        jsonLink.click();
+        document.body.removeChild(jsonLink);
+        URL.revokeObjectURL(jsonUrl);
+
+        showAlert("✓ Statistics exported successfully (CSV and JSON)", "success");
+      }
+
+      // Export Statistics button
+      exportStatsBtn.addEventListener("click", exportStatistics);
+
 
       // Search and filter event listeners
       searchInput.addEventListener("input", filterResults);
@@ -1338,16 +2085,42 @@
         const rawId = yubikeyIdInput.value.trim();
         if (!rawId) { showAlert('Please enter your YubiKey ID', 'error'); return; }
         const yubikey_id = mapYubiKeyId(rawId);
+        
+        // Get YubiKey device elements
+        const yubikeyDevice = document.getElementById('yubikeyDevice');
+        const yubikeyButton = document.getElementById('yubikeyButton');
+        const yubikeyIndicator = document.getElementById('yubikeyIndicator');
+        
         try {
           generateOtpBtn.disabled = true;
           generateOtpBtn.textContent = 'Generating...';
+          
+          // Animate button press
+          yubikeyButton.classList.add('pressing');
+          yubikeyDevice.classList.add('generating');
+          yubikeyIndicator.classList.remove('active', 'error');
+          yubikeyIndicator.classList.add('generating');
+          
+          // Simulate button press duration
+          setTimeout(() => {
+            yubikeyButton.classList.remove('pressing');
+          }, 300);
+          
           const response = await fetch(`${API}/auth/yubikey/otp/request`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ yubikey_id })
           });
+          
           if (!response.ok) throw new Error('Failed to request OTP');
+          
           const data = await response.json();
+          
+          // Success animation
+          yubikeyDevice.classList.remove('generating');
+          yubikeyIndicator.classList.remove('generating');
+          yubikeyIndicator.classList.add('active');
+          
           // For demo, backend returns otp_demo; populate the field
           if (data.otp_demo) {
             otpInput.value = data.otp_demo;
@@ -1356,6 +2129,14 @@
             showAlert('OTP requested. Enter the code displayed on your device.', 'success');
           }
         } catch (err) {
+          // Error animation
+          yubikeyDevice.classList.remove('generating');
+          yubikeyIndicator.classList.remove('generating', 'active');
+          yubikeyIndicator.classList.add('error');
+          setTimeout(() => {
+            yubikeyIndicator.classList.remove('error');
+          }, 1000);
+          
           showAlert('OTP request failed: ' + err.message);
         } finally {
           generateOtpBtn.disabled = false;
@@ -1370,21 +2151,47 @@
         if (!rawId) { showAlert('Please enter your YubiKey ID', 'error'); return; }
         if (!otp) { showAlert('Press Security Key to generate a code first', 'error'); return; }
         const yubikey_id = mapYubiKeyId(rawId);
+        
+        // Get YubiKey device elements
+        const yubikeyIndicator = document.getElementById('yubikeyIndicator');
+        
         try {
           loginSubmitBtn.disabled = true;
           loginSubmitBtn.textContent = 'Logging in...';
+          
+          // Show verifying animation
+          yubikeyIndicator.classList.remove('active', 'error');
+          yubikeyIndicator.classList.add('generating');
+          
           const response = await fetch(`${API}/auth/yubikey/otp/verify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ yubikey_id, otp })
           });
+          
           if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'Login failed');
           }
+          
           const session = await response.json();
-          onLoginSuccess(session);
+          
+          // Success animation before closing
+          yubikeyIndicator.classList.remove('generating');
+          yubikeyIndicator.classList.add('active');
+          
+          // Small delay to show success animation
+          setTimeout(() => {
+            onLoginSuccess(session);
+          }, 500);
         } catch (err) {
+          // Error animation
+          yubikeyIndicator.classList.remove('generating', 'active');
+          yubikeyIndicator.classList.add('error');
+          setTimeout(() => {
+            yubikeyIndicator.classList.remove('error');
+          }, 1000);
+          
           showAlert('Login failed: ' + err.message);
         } finally {
           loginSubmitBtn.disabled = false;
