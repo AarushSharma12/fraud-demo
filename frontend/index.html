@@ -593,6 +593,68 @@
           grid-template-columns: 1fr !important;
         }
       }
+
+      /* Configuration Panel Styles */
+      .config-item label {
+        display: block;
+        margin-bottom: 8px;
+        color: #e6edf3;
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .config-item input[type="range"] {
+        width: 100%;
+        height: 6px;
+        background: #30363d;
+        border-radius: 3px;
+        outline: none;
+      }
+
+      .config-item input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        background: #58a6ff;
+        cursor: pointer;
+        border-radius: 50%;
+      }
+
+      .config-item input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        background: #58a6ff;
+        cursor: pointer;
+        border-radius: 50%;
+        border: none;
+      }
+
+      .category-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: #da3633;
+        color: white;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .category-tag button {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        padding: 0;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .category-tag button:hover {
+        opacity: 0.8;
+      }
     </style>
   </head>
   <body>
@@ -934,6 +996,172 @@
         </div>
       </div>
 
+      <!-- System Configuration Panel (Admin only) -->
+      <div class="card" id="systemConfigCard" style="display: none;">
+        <h2>⚙️ System Configuration</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          Adjust detection thresholds and system settings. Changes apply immediately to new analyses.
+        </div>
+        
+        <!-- Amount Thresholds Section -->
+        <div style="background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 16px;">
+          <h3 style="color: #58a6ff; margin-bottom: 12px; font-size: 16px;">💰 Amount Thresholds</h3>
+          
+          <div class="config-item">
+            <label for="largeAmountThreshold">Large Amount Threshold ($)</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="range" id="largeAmountThreshold" min="500" max="5000" step="100" value="1000" 
+                     style="flex: 1;"
+                     oninput="document.getElementById('largeAmountValue').textContent = '$' + this.value">
+              <span id="largeAmountValue" style="min-width: 80px; font-weight: 600; color: #58a6ff;">$1000</span>
+            </div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Transactions above this amount are flagged</div>
+          </div>
+          
+          <div class="config-item" style="margin-top: 16px;">
+            <label for="largeTransferThreshold">Large Transfer Threshold ($)</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="range" id="largeTransferThreshold" min="1000" max="10000" step="100" value="2000" 
+                     style="flex: 1;"
+                     oninput="document.getElementById('largeTransferValue').textContent = '$' + this.value">
+              <span id="largeTransferValue" style="min-width: 80px; font-weight: 600; color: #58a6ff;">$2000</span>
+            </div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Transfers above this amount are flagged</div>
+          </div>
+          
+          <div class="config-item" style="margin-top: 16px;">
+            <label for="unusualDepositThreshold">Unusual Deposit Threshold ($)</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="range" id="unusualDepositThreshold" min="2000" max="20000" step="500" value="5000" 
+                     style="flex: 1;"
+                     oninput="document.getElementById('unusualDepositValue').textContent = '$' + this.value">
+              <span id="unusualDepositValue" style="min-width: 80px; font-weight: 600; color: #58a6ff;">$5000</span>
+            </div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Deposits above this amount are flagged</div>
+          </div>
+        </div>
+        
+        <!-- Decision Logic Section -->
+        <div style="background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 16px;">
+          <h3 style="color: #58a6ff; margin-bottom: 12px; font-size: 16px;">🎯 Decision Logic</h3>
+          
+          <div class="config-item">
+            <label for="fraudFlagThreshold">Fraud Flag Threshold</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="number" id="fraudFlagThreshold" min="1" max="5" value="2" 
+                     style="width: 100px; padding: 8px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3;">
+              <span style="color: #8b949e;">flags or more = FRAUD</span>
+            </div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Number of red flags needed to classify as fraud</div>
+          </div>
+          
+          <div class="config-item" style="margin-top: 16px;">
+            <label for="reviewConfidence">Review Confidence Threshold (%)</label>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <input type="range" id="reviewConfidence" min="30" max="70" step="5" value="50" 
+                     style="flex: 1;"
+                     oninput="document.getElementById('reviewConfidenceValue').textContent = this.value + '%'">
+              <span id="reviewConfidenceValue" style="min-width: 60px; font-weight: 600; color: #58a6ff;">50%</span>
+            </div>
+            <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">Confidence level for cases needing review</div>
+          </div>
+        </div>
+        
+        <!-- High Risk Categories Section -->
+        <div style="background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 16px;">
+          <h3 style="color: #58a6ff; margin-bottom: 12px; font-size: 16px;">🏷️ High Risk Categories</h3>
+          
+          <div id="highRiskCategoriesList" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+            <!-- Will be populated by JavaScript -->
+          </div>
+          
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="newCategoryInput" placeholder="Add category (e.g., 'gambling')" 
+                   style="flex: 1; padding: 8px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3;">
+            <button onclick="addHighRiskCategory()" class="secondary">Add</button>
+          </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="controls">
+          <button id="saveConfigBtn" style="background: #238636;">💾 Save Configuration</button>
+          <button id="resetConfigBtn" class="secondary">🔄 Reset to Defaults</button>
+          <button id="testConfigBtn" class="secondary">🧪 Test with Sample Transaction</button>
+        </div>
+        
+        <div id="configStatus" style="margin-top: 12px; color: #8b949e; font-size: 14px;"></div>
+      </div>
+
+      <!-- Audit Log Viewer (Admin/Analyst only) -->
+      <div class="card" id="auditLogCard" style="display: none;">
+        <h2>📋 Audit Logs</h2>
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          Track all system activities and user actions for compliance and security monitoring
+        </div>
+        
+        <!-- Filters -->
+        <div class="search-filter">
+          <input id="auditSearchInput" type="text" placeholder="Search logs..." style="width: 200px;" />
+          <select id="auditActionFilter" style="background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; font-size: 14px;">
+            <option value="">All Actions</option>
+            <option value="LOGIN_SUCCESS">Login Success</option>
+            <option value="LOGIN_FAILED">Login Failed</option>
+            <option value="MODEL_TRAINED">Model Trained</option>
+            <option value="REVIEW_DECISION">Review Decision</option>
+            <option value="POST /batch">Batch Analysis</option>
+            <option value="POST /rl/batch">RL Batch Analysis</option>
+          </select>
+          <select id="auditStatusFilter" style="background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; font-size: 14px;">
+            <option value="">All Status</option>
+            <option value="success">Success</option>
+            <option value="error">Error</option>
+          </select>
+          <button id="auditClearFiltersBtn" class="secondary">Clear Filters</button>
+          <button id="refreshAuditLogsBtn" class="secondary">🔄 Refresh</button>
+        </div>
+        
+        <!-- Export buttons -->
+        <div class="controls" style="margin-bottom: 16px;">
+          <button id="exportAuditCsvBtn" class="secondary">📥 Export CSV</button>
+          <button id="exportAuditJsonBtn" class="secondary">📥 Export JSON</button>
+          <span id="auditStats" style="color: #8b949e; margin-left: 12px;"></span>
+        </div>
+        
+        <!-- Pagination Info -->
+        <div style="margin-bottom: 16px; color: #8b949e; font-size: 14px;">
+          <span id="auditPaginationInfo">Loading...</span>
+        </div>
+        
+        <!-- Pagination Controls -->
+        <div class="controls" id="auditPaginationControls" style="justify-content: center; margin-bottom: 16px;">
+          <button id="auditPrevPageBtn" class="secondary">← Previous</button>
+          <span id="auditPageNumbers" style="color: #8b949e; margin: 0 16px;"></span>
+          <button id="auditNextPageBtn" class="secondary">Next →</button>
+        </div>
+        
+        <!-- Audit Log Table -->
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Role</th>
+              <th>Action</th>
+              <th>Resource</th>
+              <th>Status</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="auditLogsTable">
+            <tr>
+              <td colspan="7" style="text-align: center; color: #8b949e">
+                Loading audit logs...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <!-- Demo Notes -->
       <div class="card">
         <h2>📝 Demo Notes</h2>
@@ -962,7 +1190,8 @@
     </div>
 
     <script>
-      const API = "https://attu2.cs.washington.edu:8000";
+      // const API = "https://attu2.cs.washington.edu:8000";
+      const API = "http://localhost:8000";
 
       // Chart instance
       let confusionMatrixChart = null;
@@ -1022,6 +1251,30 @@
       const otpInput = document.getElementById("otpInput");
       const generateOtpBtn = document.getElementById("generateOtpBtn");
       const loginSubmitBtn = document.getElementById("loginSubmitBtn");
+      
+      // Audit log elements
+      const auditLogCard = document.getElementById("auditLogCard");
+      const auditSearchInput = document.getElementById("auditSearchInput");
+      const auditActionFilter = document.getElementById("auditActionFilter");
+      const auditStatusFilter = document.getElementById("auditStatusFilter");
+      const auditClearFiltersBtn = document.getElementById("auditClearFiltersBtn");
+      const refreshAuditLogsBtn = document.getElementById("refreshAuditLogsBtn");
+      const exportAuditCsvBtn = document.getElementById("exportAuditCsvBtn");
+      const exportAuditJsonBtn = document.getElementById("exportAuditJsonBtn");
+      const auditLogsTable = document.getElementById("auditLogsTable");
+      const auditPaginationInfo = document.getElementById("auditPaginationInfo");
+      const auditPaginationControls = document.getElementById("auditPaginationControls");
+      const auditPrevPageBtn = document.getElementById("auditPrevPageBtn");
+      const auditNextPageBtn = document.getElementById("auditNextPageBtn");
+      const auditPageNumbers = document.getElementById("auditPageNumbers");
+      const auditStats = document.getElementById("auditStats");
+      
+      // Configuration elements
+      const systemConfigCard = document.getElementById("systemConfigCard");
+      const saveConfigBtn = document.getElementById("saveConfigBtn");
+      const resetConfigBtn = document.getElementById("resetConfigBtn");
+      const testConfigBtn = document.getElementById("testConfigBtn");
+      const configStatus = document.getElementById("configStatus");
 
       // State
       let allResults = [];
@@ -1037,6 +1290,14 @@
       let liveFeedEventSource = null;
       let liveFeedStatsInterval = null;
       let currentMetrics = null; // Store current metrics for export
+      
+      // Audit log state
+      let allAuditLogs = [];
+      let auditCurrentPage = 1;
+      const auditLogsPerPage = 50;
+      
+      // Configuration state
+      let currentConfig = null;
 
       // Show alert
       function showAlert(message, type = "error") {
@@ -2344,6 +2605,7 @@
           refreshKpisBtn.style.display = 'none';
           rewardWeightsCard.style.display = 'none';
           adminTrainingCard.style.display = 'none';
+          auditLogCard.style.display = 'none';
           
           // But they CAN see results and models
           loadHistoricalResults();
@@ -2356,6 +2618,10 @@
           refreshKpisBtn.style.display = 'inline-block';
           rewardWeightsCard.style.display = 'none';
           adminTrainingCard.style.display = 'none';
+          auditLogCard.style.display = 'block';
+          
+          // Load audit logs for analyst
+          loadAuditLogs();
           
         } else if (role === 'admin') {
           // Admins have full access
@@ -2365,11 +2631,15 @@
           refreshKpisBtn.style.display = 'inline-block';
           rewardWeightsCard.style.display = 'block';
           adminTrainingCard.style.display = 'block';
+          systemConfigCard.style.display = 'block';
+          auditLogCard.style.display = 'block';
           
-          // Load reward weights
+          // Load reward weights, system configuration, and audit logs
           loadRewardWeights();
+          loadSystemConfig();
+          loadAuditLogs();
           
-          console.log('Admin logged in - showing reward weights and review queue');
+          console.log('Admin logged in - showing all admin features');
         }
       }
       
@@ -2470,6 +2740,405 @@
       // Save/Reset reward weights (admin only)
       saveRewardWeightsBtn.addEventListener('click', saveRewardWeights);
       resetRewardWeightsBtn.addEventListener('click', loadRewardWeights);
+      
+      // ============ SYSTEM CONFIGURATION FUNCTIONS ============
+      
+      // Load system configuration
+      async function loadSystemConfig() {
+        if (!currentSession || currentSession.role !== 'admin') {
+          return;
+        }
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/config/detection`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Failed to load configuration');
+          
+          currentConfig = await response.json();
+          displaySystemConfig(currentConfig);
+          
+        } catch (err) {
+          showAlert('Failed to load system configuration: ' + err.message);
+        }
+      }
+      
+      // Display configuration in UI
+      function displaySystemConfig(config) {
+        // Amount thresholds
+        document.getElementById('largeAmountThreshold').value = config.large_amount_threshold;
+        document.getElementById('largeAmountValue').textContent = '$' + config.large_amount_threshold;
+        
+        document.getElementById('largeTransferThreshold').value = config.large_transfer_threshold;
+        document.getElementById('largeTransferValue').textContent = '$' + config.large_transfer_threshold;
+        
+        document.getElementById('unusualDepositThreshold').value = config.unusual_deposit_threshold;
+        document.getElementById('unusualDepositValue').textContent = '$' + config.unusual_deposit_threshold;
+        
+        // Decision logic
+        document.getElementById('fraudFlagThreshold').value = config.fraud_flag_threshold;
+        document.getElementById('reviewConfidence').value = config.review_confidence * 100;
+        document.getElementById('reviewConfidenceValue').textContent = (config.review_confidence * 100) + '%';
+        
+        // High risk categories
+        displayHighRiskCategories(config.high_risk_categories);
+      }
+      
+      // Display high risk categories as tags
+      function displayHighRiskCategories(categories) {
+        const container = document.getElementById('highRiskCategoriesList');
+        container.innerHTML = categories.map(cat => `
+          <div class="category-tag">
+            ${cat}
+            <button onclick="removeHighRiskCategory('${cat}')" title="Remove">×</button>
+          </div>
+        `).join('');
+      }
+      
+      // Add high risk category
+      function addHighRiskCategory() {
+        const input = document.getElementById('newCategoryInput');
+        const category = input.value.trim().toLowerCase();
+        
+        if (!category) {
+          showAlert('Please enter a category name', 'error');
+          return;
+        }
+        
+        if (currentConfig.high_risk_categories.includes(category)) {
+          showAlert('Category already exists', 'warning');
+          return;
+        }
+        
+        currentConfig.high_risk_categories.push(category);
+        displayHighRiskCategories(currentConfig.high_risk_categories);
+        input.value = '';
+      }
+      
+      // Remove high risk category
+      function removeHighRiskCategory(category) {
+        currentConfig.high_risk_categories = currentConfig.high_risk_categories.filter(c => c !== category);
+        displayHighRiskCategories(currentConfig.high_risk_categories);
+      }
+      
+      // Save configuration
+      async function saveSystemConfig() {
+        if (!currentSession || currentSession.role !== 'admin') {
+          showAlert('Only admin users can save configuration', 'error');
+          return;
+        }
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          
+          // Gather updates from UI
+          const updates = {
+            large_amount_threshold: parseFloat(document.getElementById('largeAmountThreshold').value),
+            large_transfer_threshold: parseFloat(document.getElementById('largeTransferThreshold').value),
+            unusual_deposit_threshold: parseFloat(document.getElementById('unusualDepositThreshold').value),
+            fraud_flag_threshold: parseInt(document.getElementById('fraudFlagThreshold').value),
+            review_confidence: parseFloat(document.getElementById('reviewConfidence').value) / 100,
+            high_risk_categories: currentConfig.high_risk_categories
+          };
+          
+          saveConfigBtn.disabled = true;
+          configStatus.textContent = 'Saving...';
+          
+          const response = await fetch(`${API}/config/detection`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updates)
+          });
+          
+          if (!response.ok) throw new Error('Failed to save configuration');
+          
+          const result = await response.json();
+          currentConfig = result.config;
+          
+          showAlert('✓ Configuration saved successfully! Changes will apply to new analyses.', 'success');
+          configStatus.textContent = 'Last saved: ' + new Date().toLocaleTimeString();
+          
+        } catch (err) {
+          showAlert('Failed to save configuration: ' + err.message);
+          configStatus.textContent = 'Save failed';
+        } finally {
+          saveConfigBtn.disabled = false;
+        }
+      }
+      
+      // Reset configuration
+      async function resetSystemConfig() {
+        if (!currentSession || currentSession.role !== 'admin') {
+          showAlert('Only admin users can reset configuration', 'error');
+          return;
+        }
+        
+        if (!confirm('Are you sure you want to reset all configuration to defaults? This cannot be undone.')) {
+          return;
+        }
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          
+          const response = await fetch(`${API}/config/detection/reset`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Failed to reset configuration');
+          
+          const result = await response.json();
+          currentConfig = result.config;
+          displaySystemConfig(currentConfig);
+          
+          showAlert('✓ Configuration reset to defaults', 'success');
+          configStatus.textContent = '';
+          
+        } catch (err) {
+          showAlert('Failed to reset configuration: ' + err.message);
+        }
+      }
+      
+      // Test configuration with sample transaction
+      async function testSystemConfig() {
+        showAlert('Testing configuration with sample transaction...', 'warning');
+        
+        // Use first transaction as test
+        const testTxnId = 'T001';
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const response = await fetch(`${API}/analyze?txn_id=${testTxnId}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Test failed');
+          
+          const result = await response.json();
+          
+          showAlert(
+            `✓ Test complete: ${result.decision} (${(result.confidence * 100).toFixed(0)}% confidence, ${result.flags.length} flags)`,
+            result.decision === 'FRAUD' ? 'error' : 'success'
+          );
+          
+        } catch (err) {
+          showAlert('Test failed: ' + err.message);
+        }
+      }
+      
+      // Event listeners for configuration
+      if (saveConfigBtn) saveConfigBtn.addEventListener('click', saveSystemConfig);
+      if (resetConfigBtn) resetConfigBtn.addEventListener('click', resetSystemConfig);
+      if (testConfigBtn) testConfigBtn.addEventListener('click', testSystemConfig);
+      
+      // ============ AUDIT LOG FUNCTIONS ============
+      
+      // Load audit logs
+      async function loadAuditLogs() {
+        if (!currentSession || (currentSession.role !== 'admin' && currentSession.role !== 'analyst')) {
+          return;
+        }
+        
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const params = new URLSearchParams({
+            limit: '1000',
+            offset: '0'
+          });
+          
+          // Apply filters
+          if (auditActionFilter.value) params.append('action', auditActionFilter.value);
+          if (auditStatusFilter.value) params.append('status', auditStatusFilter.value);
+          if (auditSearchInput.value) params.append('search', auditSearchInput.value);
+          
+          const response = await fetch(`${API}/audit/logs?${params}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          allAuditLogs = data.logs || [];
+          
+          // Update stats
+          if (data.total === 0) {
+            auditStats.textContent = 'No logs yet - logs will appear as you use the system';
+          } else {
+            auditStats.textContent = `Total: ${data.total} logs`;
+          }
+          
+          // Reset to first page
+          auditCurrentPage = 1;
+          displayAuditLogs();
+          
+        } catch (err) {
+          console.error('Audit log error:', err);
+          auditStats.textContent = 'No logs yet';
+          auditLogsTable.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #8b949e">No audit logs yet. Logs will appear as you perform actions (login, train models, review cases, etc.)</td></tr>';
+        }
+      }
+      
+      // Display audit logs with pagination
+      function displayAuditLogs() {
+        if (allAuditLogs.length === 0) {
+          auditLogsTable.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #8b949e"><div style="padding: 20px;">📋 No audit logs yet<br><span style="font-size: 12px; color: #6e7681;">Logs will automatically appear when you:<br>• Login/logout<br>• Train models<br>• Review transactions<br>• Run batch analyses</span></div></td></tr>';
+          auditPaginationInfo.textContent = 'Showing 0 - 0 of 0 logs';
+          auditPaginationControls.style.display = 'none';
+          return;
+        }
+        
+        // Calculate pagination
+        const totalPages = Math.ceil(allAuditLogs.length / auditLogsPerPage);
+        const startIndex = (auditCurrentPage - 1) * auditLogsPerPage;
+        const endIndex = Math.min(startIndex + auditLogsPerPage, allAuditLogs.length);
+        const pageLogs = allAuditLogs.slice(startIndex, endIndex);
+        
+        // Update pagination info
+        auditPaginationInfo.textContent = `Showing ${startIndex + 1} - ${endIndex} of ${allAuditLogs.length} logs`;
+        
+        // Update pagination controls
+        auditPaginationControls.style.display = totalPages > 1 ? 'flex' : 'none';
+        auditPrevPageBtn.disabled = auditCurrentPage === 1;
+        auditNextPageBtn.disabled = auditCurrentPage === totalPages;
+        auditPageNumbers.textContent = `Page ${auditCurrentPage} of ${totalPages}`;
+        
+        // Display logs
+        auditLogsTable.innerHTML = pageLogs.map(log => {
+          const timestamp = new Date(log.timestamp).toLocaleString();
+          const statusBadge = log.status === 'success' 
+            ? '<span class="badge badge-legit">Success</span>' 
+            : '<span class="badge badge-fraud">Error</span>';
+          
+          const detailsStr = log.details ? JSON.stringify(log.details) : '';
+          const detailsPreview = detailsStr.length > 50 
+            ? detailsStr.substring(0, 50) + '...' 
+            : detailsStr;
+          
+          return `
+            <tr>
+              <td style="font-size: 12px;">${timestamp}</td>
+              <td>${log.user_name || 'Unknown'}</td>
+              <td><span class="user-badge badge-${log.user_role === 'admin' ? 'admin' : log.user_role === 'analyst' ? 'analyst' : 'viewer'}">${(log.user_role || 'N/A').toUpperCase()}</span></td>
+              <td style="font-size: 12px; font-family: monospace;">${log.action}</td>
+              <td style="font-size: 12px;">${log.resource || '-'}</td>
+              <td>${statusBadge}</td>
+              <td style="font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${detailsStr}">${detailsPreview}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+      
+      // Audit log pagination handlers
+      auditPrevPageBtn.addEventListener('click', () => {
+        if (auditCurrentPage > 1) {
+          auditCurrentPage--;
+          displayAuditLogs();
+        }
+      });
+      
+      auditNextPageBtn.addEventListener('click', () => {
+        const totalPages = Math.ceil(allAuditLogs.length / auditLogsPerPage);
+        if (auditCurrentPage < totalPages) {
+          auditCurrentPage++;
+          displayAuditLogs();
+        }
+      });
+      
+      // Filter handlers
+      auditSearchInput.addEventListener('input', () => {
+        auditCurrentPage = 1;
+        loadAuditLogs();
+      });
+      
+      auditActionFilter.addEventListener('change', () => {
+        auditCurrentPage = 1;
+        loadAuditLogs();
+      });
+      
+      auditStatusFilter.addEventListener('change', () => {
+        auditCurrentPage = 1;
+        loadAuditLogs();
+      });
+      
+      auditClearFiltersBtn.addEventListener('click', () => {
+        auditSearchInput.value = '';
+        auditActionFilter.value = '';
+        auditStatusFilter.value = '';
+        auditCurrentPage = 1;
+        loadAuditLogs();
+      });
+      
+      refreshAuditLogsBtn.addEventListener('click', loadAuditLogs);
+      
+      // Export CSV
+      exportAuditCsvBtn.addEventListener('click', async () => {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const params = new URLSearchParams();
+          
+          if (auditActionFilter.value) params.append('action', auditActionFilter.value);
+          if (auditStatusFilter.value) params.append('status', auditStatusFilter.value);
+          
+          const response = await fetch(`${API}/audit/export/csv?${params}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Export failed');
+          
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `audit_logs_${new Date().toISOString().split('T')[0]}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          showAlert('✓ Audit logs exported to CSV', 'success');
+        } catch (err) {
+          showAlert('Failed to export CSV: ' + err.message);
+        }
+      });
+      
+      // Export JSON
+      exportAuditJsonBtn.addEventListener('click', async () => {
+        try {
+          const token = sessionStorage.getItem('session_token');
+          const params = new URLSearchParams();
+          
+          if (auditActionFilter.value) params.append('action', auditActionFilter.value);
+          if (auditStatusFilter.value) params.append('status', auditStatusFilter.value);
+          
+          const response = await fetch(`${API}/audit/export/json?${params}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Export failed');
+          
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `audit_logs_${new Date().toISOString().split('T')[0]}.json`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          showAlert('✓ Audit logs exported to JSON', 'success');
+        } catch (err) {
+          showAlert('Failed to export JSON: ' + err.message);
+        }
+      });
       
       // Train model (admin only)
       startTrainingBtn.addEventListener('click', async () => {

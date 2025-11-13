@@ -28,6 +28,8 @@ import os
 import uuid
 import hashlib
 from pathlib import Path
+import csv
+import io
 try:
     import torch
 except ImportError:
@@ -163,6 +165,48 @@ class RewardWeights(BaseModel):
     review_incorrect: float = -1.0
 
 
+class DetectionConfig(BaseModel):
+    """Detection algorithm configuration"""
+    # Amount thresholds
+    large_amount_threshold: float = 1000.0
+    large_transfer_threshold: float = 2000.0
+    unusual_deposit_threshold: float = 5000.0
+    suspicious_channel_amount: float = 500.0
+    
+    # Geographic settings
+    high_risk_locations: List[str] = ["RU", "CN", "NG", "BR", "MX", "Tokyo", "Toronto", "London", "Sydney", "Berlin", "Dubai", "Singapore"]
+    
+    # Category settings
+    high_risk_categories: List[str] = ["other", "online"]
+    
+    # Decision thresholds
+    fraud_flag_threshold: int = 2  # ≥2 flags = FRAUD
+    legit_flag_threshold: int = 0   # 0 flags = LEGIT
+    
+    # Confidence settings
+    high_confidence_base: float = 0.70
+    confidence_per_flag: float = 0.08
+    review_confidence: float = 0.50
+    
+    # Channel risk settings
+    suspicious_channels: List[str] = ["mobile", "web"]
+    
+    model_config = {"protected_namespaces": ()}
+
+
+class SystemConfig(BaseModel):
+    """System-wide configuration"""
+    detection: DetectionConfig = DetectionConfig()
+    
+    # Model settings
+    active_model_id: Optional[str] = None
+    
+    # Session settings
+    session_timeout_hours: int = 8
+    
+    model_config = {"protected_namespaces": ()}
+
+
 def generate_session_token() -> str:
     """Generate a secure session token"""
     return str(uuid.uuid4())
@@ -269,6 +313,224 @@ def require_permission(permission: str):
             return await func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# ============ AUDIT LOGGING SYSTEM ============
+
+
+class AuditLog(BaseModel):
+    """Audit log entry"""
+    log_id: str
+    timestamp: str
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_role: Optional[str] = None
+    action: str
+    resource: Optional[str] = None
+    details: Optional[dict] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    session_token: Optional[str] = None
+    status: str  # "success" or "error"
+    error_message: Optional[str] = None
+    
+    model_config = {"protected_namespaces": ()}
+
+
+class AuditLogService:
+    """Service for managing audit logs"""
+    
+    def __init__(self, log_dir: Path = None):
+        self.log_dir = log_dir or Path(__file__).parent / "audit_logs"
+        self.log_dir.mkdir(exist_ok=True)
+        self.log_file = self.log_dir / "audit.jsonl"
+    
+    def log(
+        self,
+        action: str,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        user_role: Optional[str] = None,
+        resource: Optional[str] = None,
+        details: Optional[dict] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        session_token: Optional[str] = None,
+        status: str = "success",
+        error_message: Optional[str] = None
+    ) -> AuditLog:
+        """Create and store an audit log entry"""
+        log_entry = AuditLog(
+            log_id=str(uuid.uuid4()),
+            timestamp=datetime.utcnow().isoformat(),
+            user_id=user_id,
+            user_name=user_name,
+            user_role=user_role,
+            action=action,
+            resource=resource,
+            details=details or {},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            session_token=session_token[:8] + "..." if session_token else None,
+            status=status,
+            error_message=error_message
+        )
+        
+        # Append to JSONL file (one JSON object per line)
+        with open(self.log_file, "a") as f:
+            f.write(log_entry.model_dump_json() + "\n")
+        
+        return log_entry
+    
+    def get_logs(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        search: Optional[str] = None
+    ) -> tuple[List[AuditLog], int]:
+        """Retrieve audit logs with filtering"""
+        if not self.log_file.exists():
+            return [], 0
+        
+        logs = []
+        with open(self.log_file, "r") as f:
+            for line in f:
+                try:
+                    log_data = json.loads(line.strip())
+                    log = AuditLog(**log_data)
+                    
+                    # Apply filters
+                    if user_id and log.user_id != user_id:
+                        continue
+                    if action and log.action != action:
+                        continue
+                    if status and log.status != status:
+                        continue
+                    if start_date and log.timestamp < start_date:
+                        continue
+                    if end_date and log.timestamp > end_date:
+                        continue
+                    if search:
+                        search_lower = search.lower()
+                        searchable = f"{log.action} {log.resource} {log.user_name} {json.dumps(log.details)}".lower()
+                        if search_lower not in searchable:
+                            continue
+                    
+                    logs.append(log)
+                except Exception as e:
+                    print(f"Error parsing audit log line: {e}")
+                    continue
+        
+        # Sort by timestamp descending (newest first)
+        logs.sort(key=lambda x: x.timestamp, reverse=True)
+        
+        total = len(logs)
+        return logs[offset:offset + limit], total
+    
+    def export_logs_csv(
+        self,
+        user_id: Optional[str] = None,
+        action: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> str:
+        """Export logs as CSV"""
+        logs, _ = self.get_logs(
+            limit=10000,
+            user_id=user_id,
+            action=action,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            'timestamp', 'user_name', 'user_role', 'action', 'resource',
+            'status', 'ip_address', 'details'
+        ])
+        writer.writeheader()
+        
+        for log in logs:
+            writer.writerow({
+                'timestamp': log.timestamp,
+                'user_name': log.user_name or 'Unknown',
+                'user_role': log.user_role or 'Unknown',
+                'action': log.action,
+                'resource': log.resource or '',
+                'status': log.status,
+                'ip_address': log.ip_address or '',
+                'details': json.dumps(log.details) if log.details else ''
+            })
+        
+        return output.getvalue()
+
+
+# Initialize audit service
+audit_service = AuditLogService()
+
+
+# ============ CONFIGURATION SERVICE ============
+
+
+class ConfigurationService:
+    """Manages system configuration"""
+    
+    def __init__(self, config_file: Path = None):
+        self.config_file = config_file or Path(__file__).parent / "config.json"
+        self.config: SystemConfig = self._load_config()
+    
+    def _load_config(self) -> SystemConfig:
+        """Load configuration from file"""
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, 'r') as f:
+                    data = json.load(f)
+                    return SystemConfig(**data)
+            except Exception as e:
+                print(f"Failed to load config: {e}, using defaults")
+                return SystemConfig()
+        else:
+            # Return defaults and save
+            config = SystemConfig()
+            self.save_config(config)
+            return config
+    
+    def save_config(self, config: SystemConfig) -> None:
+        """Save configuration to file"""
+        with open(self.config_file, 'w') as f:
+            json.dump(config.model_dump(), f, indent=2)
+        self.config = config
+    
+    def get_detection_config(self) -> DetectionConfig:
+        """Get current detection configuration"""
+        return self.config.detection
+    
+    def update_detection_config(self, updates: dict) -> DetectionConfig:
+        """Update detection configuration"""
+        current = self.config.detection.model_dump()
+        current.update(updates)
+        self.config.detection = DetectionConfig(**current)
+        self.save_config(self.config)
+        return self.config.detection
+    
+    def reset_to_defaults(self) -> SystemConfig:
+        """Reset all configuration to defaults"""
+        self.config = SystemConfig()
+        self.save_config(self.config)
+        return self.config
+    
+    def get_system_config(self) -> SystemConfig:
+        """Get full system configuration"""
+        return self.config
+
+
+# Initialize config service
+config_service = ConfigurationService()
 
 
 # ============ DATA MODELS ============
@@ -873,7 +1135,102 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-# Add request logging middleware (before CORS)
+
+# Audit logging middleware to capture all API actions
+class AuditLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Skip audit logging for health check and static assets
+        if request.url.path in ["/", "/health"]:
+            return await call_next(request)
+        
+        # Get client info
+        client_ip = request.client.host if request.client else "unknown"
+        forwarded_for = request.headers.get("X-Forwarded-For", "")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        user_agent = request.headers.get("User-Agent", "unknown")
+        
+        # Extract user info from authorization header if present
+        user_id = None
+        user_name = None
+        user_role = None
+        session_token = None
+        
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+            if session_token in ACTIVE_SESSIONS:
+                session = ACTIVE_SESSIONS[session_token]
+                user_id = session.get("user_id")
+                user_name = session.get("name")
+                user_role = session.get("role")
+        
+        # Determine action from path and method
+        action = f"{request.method} {request.url.path}"
+        resource = None
+        
+        # Parse resource from path (e.g., /analyze/T001 -> resource=T001)
+        path_parts = request.url.path.split("/")
+        if len(path_parts) > 2:
+            resource = path_parts[-1]
+        
+        # Execute request
+        start_time = datetime.utcnow()
+        status = "success"
+        error_message = None
+        
+        try:
+            response = await call_next(request)
+            if response.status_code >= 400:
+                status = "error"
+                error_message = f"HTTP {response.status_code}"
+            
+            # Log the action
+            audit_service.log(
+                action=action,
+                user_id=user_id,
+                user_name=user_name,
+                user_role=user_role,
+                resource=resource,
+                details={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query_params": str(request.query_params),
+                    "status_code": response.status_code,
+                    "duration_ms": int((datetime.utcnow() - start_time).total_seconds() * 1000)
+                },
+                ip_address=client_ip,
+                user_agent=user_agent[:100],
+                session_token=session_token,
+                status=status,
+                error_message=error_message
+            )
+            
+            return response
+            
+        except Exception as e:
+            # Log the error
+            audit_service.log(
+                action=action,
+                user_id=user_id,
+                user_name=user_name,
+                user_role=user_role,
+                resource=resource,
+                details={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query_params": str(request.query_params)
+                },
+                ip_address=client_ip,
+                user_agent=user_agent[:100],
+                session_token=session_token,
+                status="error",
+                error_message=str(e)
+            )
+            raise
+
+# Add middlewares (order matters: last added = first executed)
+app.add_middleware(AuditLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # Enable CORS
@@ -990,64 +1347,59 @@ def validate_transaction(txn: Transaction) -> tuple[bool, str]:
 
 def analyze_transaction(txn: Transaction) -> FraudDecision:
     """
-    Deterministic fraud detection with red flags:
-    - large_amount: amount > 1000
-    - suspicious_category: high-risk categories
-    - suspicious_location: non-US locations
-    - suspicious_channel: unusual channels for transaction type
-    - suspicious_type: unusual transaction types
+    Deterministic fraud detection with red flags using dynamic configuration
     """
     flags = []
     
-    # High-risk categories
-    HIGH_RISK_CATEGORIES = ["other", "online"]
-    # High-risk locations (non-US)
+    # Get current configuration
+    config = config_service.get_detection_config()
+    
+    # US locations (non-high-risk)
     US_LOCATIONS = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", 
                     "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Jacksonville",
                     "San Francisco", "Columbus", "Fort Worth", "Charlotte", "Seattle", "Denver",
                     "Washington", "Boston", "El Paso", "Detroit", "Nashville", "Portland"]
     
-    # Check for large amount
-    if txn.amount > 1000:
+    # Check for large amount (using dynamic threshold)
+    if txn.amount > config.large_amount_threshold:
         flags.append("large_amount")
     
-    # Check for suspicious category
-    if txn.category in HIGH_RISK_CATEGORIES:
+    # Check for suspicious category (using dynamic list)
+    if txn.category in config.high_risk_categories:
         flags.append("suspicious_category")
     
-    # Check for geographic risk (non-US locations)
-    if txn.location not in US_LOCATIONS:
+    # Check for geographic risk (using dynamic list)
+    if txn.location in config.high_risk_locations or txn.location not in US_LOCATIONS:
         flags.append("geo_risk")
     
     # Check for suspicious channel combinations
-    # e.g., large withdrawals via mobile/web might be suspicious
-    if txn.transaction_type == "withdrawal" and txn.amount > 500 and txn.channel in ["mobile", "web"]:
+    if txn.transaction_type == "withdrawal" and txn.amount > config.suspicious_channel_amount and txn.channel in config.suspicious_channels:
         flags.append("suspicious_channel")
     
     # Check for unusual transaction types with large amounts
-    if txn.transaction_type == "transfer" and txn.amount > 2000:
+    if txn.transaction_type == "transfer" and txn.amount > config.large_transfer_threshold:
         flags.append("large_transfer")
     
     # Check for deposit anomalies (very large deposits)
-    if txn.transaction_type == "deposit" and txn.amount > 5000:
+    if txn.transaction_type == "deposit" and txn.amount > config.unusual_deposit_threshold:
         flags.append("unusual_deposit")
 
-    # Decision logic
+    # Decision logic (using dynamic thresholds)
     num_flags = len(flags)
 
-    if num_flags >= 2:
+    if num_flags >= config.fraud_flag_threshold:
         # High confidence fraud
-        confidence = min(0.95, 0.70 + (num_flags * 0.08))
+        confidence = min(0.95, config.high_confidence_base + (num_flags * config.confidence_per_flag))
         decision = "FRAUD"
         explanation = f"Multiple red flags detected: {', '.join(flags)}"
-    elif num_flags == 0:
+    elif num_flags == config.legit_flag_threshold:
         # Low risk
         confidence = 0.75
         decision = "LEGIT"
         explanation = "No red flags detected"
     else:
         # Uncertain - needs human review
-        confidence = 0.50
+        confidence = config.review_confidence
         decision = "NEEDS_REVIEW"
         explanation = f"Uncertain: {num_flags} flag(s), needs analyst review"
 
@@ -1147,6 +1499,14 @@ def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
     
     # Check if YubiKey exists
     if yubikey_id not in YUBIKEY_DB:
+        # Log failed login attempt
+        audit_service.log(
+            action="LOGIN_FAILED",
+            resource=yubikey_id,
+            details={"reason": "Invalid YubiKey ID"},
+            status="error",
+            error_message="Invalid YubiKey ID"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid YubiKey ID"
@@ -1156,6 +1516,16 @@ def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
     
     # Check if OTP exists and is valid
     if yubikey_id not in OTP_STORE:
+        audit_service.log(
+            action="LOGIN_FAILED",
+            user_id=user_data["user_id"],
+            user_name=user_data["name"],
+            user_role=user_data["role"],
+            resource=yubikey_id,
+            details={"reason": "No OTP found"},
+            status="error",
+            error_message="No OTP found"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="No OTP found. Please request a new one."
@@ -1167,6 +1537,16 @@ def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
     expires_at = datetime.fromisoformat(otp_data["expires_at"])
     if datetime.utcnow() > expires_at:
         del OTP_STORE[yubikey_id]
+        audit_service.log(
+            action="LOGIN_FAILED",
+            user_id=user_data["user_id"],
+            user_name=user_data["name"],
+            user_role=user_data["role"],
+            resource=yubikey_id,
+            details={"reason": "OTP expired"},
+            status="error",
+            error_message="OTP expired"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="OTP expired. Please request a new one."
@@ -1174,6 +1554,16 @@ def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
     
     # Verify OTP
     if otp_data["otp"] != otp:
+        audit_service.log(
+            action="LOGIN_FAILED",
+            user_id=user_data["user_id"],
+            user_name=user_data["name"],
+            user_role=user_data["role"],
+            resource=yubikey_id,
+            details={"reason": "Invalid OTP"},
+            status="error",
+            error_message="Invalid OTP"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid OTP"
@@ -1181,6 +1571,20 @@ def verify_yubikey_otp(request: VerifyOTPRequest) -> LoginResponse:
     
     # OTP verified, create session
     session = create_session(yubikey_id, user_data)
+    
+    # Log successful login
+    audit_service.log(
+        action="LOGIN_SUCCESS",
+        user_id=session["user_id"],
+        user_name=session["name"],
+        user_role=session["role"],
+        resource=yubikey_id,
+        details={
+            "session_token": session["session_token"][:8] + "...",
+            "expires_at": session["expires_at"]
+        },
+        status="success"
+    )
     
     # Clean up OTP
     del OTP_STORE[yubikey_id]
@@ -1398,9 +1802,30 @@ def get_transaction_details(txn_id: str):
         raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
     
     txn = TRANSACTIONS[txn_id]
+    analysis = analyze_transaction(txn)
+    
+    # Return transaction with proper schema mapping
     return {
-        "transaction": masked_transaction_dict(txn),
-        "analysis": analyze_transaction(txn).dict()
+        "transaction": {
+            "id": txn.id,
+            "timestamp": txn.timestamp,
+            "amount": txn.amount,
+            "from_account": mask_token(txn.from_account),
+            "to_account": mask_token(txn.to_account),
+            "transaction_type": txn.transaction_type,
+            "category": txn.category,
+            "location": txn.location,
+            "channel": txn.channel,
+            "label": "FRAUD" if txn.is_fraud else "LEGIT",
+            # Add backward compatibility fields for frontend
+            "merchant": f"{txn.category.title()} - {txn.location}",
+            "device_id": f"device_{txn.from_account[-6:]}",
+            "geo": txn.location,
+            "velocity_30d": 15 if not txn.is_fraud else 2,  # Mock data
+            "avg_amount_30d": txn.amount * 0.8,
+            "merchant_known": not txn.is_fraud
+        },
+        "analysis": analysis.dict()
     }
 
 
@@ -1510,6 +1935,23 @@ def train_rl_model(
         }
         rl_manager.save_model_metadata(model_id, metadata)
         
+        # Log model training
+        audit_service.log(
+            action="MODEL_TRAINED",
+            user_id=current_user["user_id"],
+            user_name=current_user["name"],
+            user_role=current_user["role"],
+            resource=model_id,
+            details={
+                "model_type": "PPO",
+                "training_steps": timesteps,
+                "accuracy": metrics["accuracy"],
+                "precision": metrics["precision"],
+                "recall": metrics["recall"]
+            },
+            status="success"
+        )
+        
         result = RLTrainingResult(**metrics)
         return {
             **result.dict(),
@@ -1581,6 +2023,24 @@ def update_review_decision(request: UpdateDecisionRequest, current_user: dict = 
                         true_label=case.true_label
                     )
                     break
+            
+            # Log the review decision
+            audit_service.log(
+                action="REVIEW_DECISION",
+                user_id=current_user["user_id"],
+                user_name=current_user["name"],
+                user_role=current_user["role"],
+                resource=request.txn_id,
+                details={
+                    "decision": request.human_decision,
+                    "original_decision": case.decision,
+                    "confidence": case.confidence,
+                    "notes": request.reviewer_notes,
+                    "flags": case.flags,
+                    "true_label": case.true_label
+                },
+                status="success"
+            )
             
             return {
                 "message": "Decision updated",
@@ -1919,6 +2379,129 @@ async def stream_live_feed(current_user: dict = Depends(get_current_user)):
     )
 
 
+# ============ AUDIT LOG API ENDPOINTS ============
+
+
+@app.get("/audit/logs")
+def get_audit_logs(
+    limit: int = 100,
+    offset: int = 0,
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """Get audit logs with filtering (admin/analyst only)"""
+    # Only admin and analyst can view audit logs
+    if current_user["role"] not in ["admin", "analyst"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin and analyst users can view audit logs"
+        )
+    
+    try:
+        logs, total = audit_service.get_logs(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            action=action,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            search=search
+        )
+        
+        return {
+            "logs": [log.model_dump() for log in logs],
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        # Return empty logs on first run or error, don't fail
+        print(f"Audit log error (non-critical): {e}")
+        return {
+            "logs": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset
+        }
+
+
+@app.get("/audit/stats")
+def get_audit_stats(current_user: dict = Depends(get_current_user)) -> dict:
+    """Get audit log statistics (admin only)"""
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can view audit statistics"
+        )
+    
+    # Get all logs
+    all_logs, total = audit_service.get_logs(limit=10000)
+    
+    # Calculate statistics
+    actions = {}
+    users = {}
+    errors = 0
+    
+    for log in all_logs:
+        # Count by action
+        actions[log.action] = actions.get(log.action, 0) + 1
+        
+        # Count by user
+        if log.user_name:
+            users[log.user_name] = users.get(log.user_name, 0) + 1
+        
+        # Count errors
+        if log.status == "error":
+            errors += 1
+    
+    return {
+        "total_logs": total,
+        "total_errors": errors,
+        "top_actions": sorted(actions.items(), key=lambda x: x[1], reverse=True)[:10],
+        "top_users": sorted(users.items(), key=lambda x: x[1], reverse=True)[:10],
+        "error_rate": round(errors / total * 100, 2) if total > 0 else 0
+    }
+
+
+@app.get("/audit/export/csv")
+def export_audit_logs_csv(
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Export audit logs as CSV (admin only)"""
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can export audit logs"
+        )
+    
+    csv_data = audit_service.export_logs_csv(
+        user_id=user_id,
+        action=action,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    from fastapi.responses import Response
+    
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        }
+    )
+
+
 @app.get("/live-feed/recent")
 def get_recent_transactions(
     limit: int = 50,
@@ -1932,6 +2515,147 @@ def get_recent_transactions(
         "count": len(recent),
         "transactions": recent
     }
+
+
+@app.get("/audit/export/json")
+def export_audit_logs_json(
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Export audit logs as JSON (admin only)"""
+    if current_user["role"] not in ["admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can export audit logs"
+        )
+    
+    logs, total = audit_service.get_logs(
+        limit=10000,
+        user_id=user_id,
+        action=action,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    from fastapi.responses import Response
+    
+    json_data = json.dumps({
+        "export_date": datetime.utcnow().isoformat(),
+        "total_logs": total,
+        "logs": [log.model_dump() for log in logs]
+    }, indent=2)
+    
+    return Response(
+        content=json_data,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f"attachment; filename=audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        }
+    )
+
+
+# ============ CONFIGURATION API ENDPOINTS ============
+
+
+@app.get("/config/detection")
+def get_detection_config(current_user: dict = Depends(get_current_user)) -> DetectionConfig:
+    """Get current detection configuration (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can view configuration"
+        )
+    
+    return config_service.get_detection_config()
+
+
+@app.put("/config/detection")
+def update_detection_config(
+    updates: dict,
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """Update detection configuration (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can update configuration"
+        )
+    
+    try:
+        # Apply updates
+        updated_config = config_service.update_detection_config(updates)
+        
+        # Log the change
+        audit_service.log(
+            action="CONFIG_UPDATED",
+            user_id=current_user["user_id"],
+            user_name=current_user["name"],
+            user_role=current_user["role"],
+            resource="detection_config",
+            details={"updates": updates},
+            status="success"
+        )
+        
+        return {
+            "message": "Configuration updated successfully. Changes will apply to new analyses.",
+            "config": updated_config.model_dump()
+        }
+        
+    except Exception as e:
+        audit_service.log(
+            action="CONFIG_UPDATE_FAILED",
+            user_id=current_user["user_id"],
+            user_name=current_user["name"],
+            user_role=current_user["role"],
+            resource="detection_config",
+            details={"updates": updates, "error": str(e)},
+            status="error",
+            error_message=str(e)
+        )
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/config/detection/reset")
+def reset_detection_config(current_user: dict = Depends(get_current_user)) -> dict:
+    """Reset detection configuration to defaults (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can reset configuration"
+        )
+    
+    config = config_service.reset_to_defaults()
+    
+    # Log the reset
+    audit_service.log(
+        action="CONFIG_RESET",
+        user_id=current_user["user_id"],
+        user_name=current_user["name"],
+        user_role=current_user["role"],
+        resource="detection_config",
+        details={"reset_to": "defaults"},
+        status="success"
+    )
+    
+    return {
+        "message": "Configuration reset to defaults",
+        "config": config.detection.model_dump()
+    }
+
+
+@app.get("/config/system")
+def get_system_config(current_user: dict = Depends(get_current_user)) -> SystemConfig:
+    """Get full system configuration (admin only)"""
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can view system configuration"
+        )
+    
+    return config_service.get_system_config()
 
 
 if __name__ == "__main__":
