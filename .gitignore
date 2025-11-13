@@ -98,3 +98,14 @@ backend/*_scaler.pkl
 rl_fraud_model.pkl
 rl_scaler.pkl
 
+# Runtime configuration and logs
+backend/config.json
+backend/audit_logs/*.jsonl
+backend/audit_logs/*.log
+
+# SSL certificates (if stored locally)
+*.key
+*.crt
+*.pem
+ssl/
+
