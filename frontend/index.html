@@ -1561,8 +1561,8 @@
           const txn = data.transaction;
           const analysis = data.analysis;
           
-          // Convert is_fraud to label
-          const trueLabel = txn.is_fraud ? 'FRAUD' : 'LEGIT';
+          // Get true label from backend response (backend returns "label" field)
+          const trueLabel = txn.label || 'UNKNOWN';
           
           // Safely format timestamp
           const formatTimestamp = (ts) => {
@@ -2789,12 +2789,38 @@
       // Display high risk categories as tags
       function displayHighRiskCategories(categories) {
         const container = document.getElementById('highRiskCategoriesList');
-        container.innerHTML = categories.map(cat => `
-          <div class="category-tag">
-            ${cat}
-            <button onclick="removeHighRiskCategory('${cat}')" title="Remove">×</button>
-          </div>
-        `).join('');
+        // Clear existing content
+        container.innerHTML = '';
+        
+        // Create elements safely to prevent XSS
+        categories.forEach(cat => {
+          const tagDiv = document.createElement('div');
+          tagDiv.className = 'category-tag';
+          
+          // Add category text safely (no innerHTML, prevents XSS)
+          tagDiv.textContent = cat;
+          
+          // Create remove button
+          const removeBtn = document.createElement('button');
+          removeBtn.textContent = '×';
+          removeBtn.title = 'Remove';
+          removeBtn.style.background = 'none';
+          removeBtn.style.border = 'none';
+          removeBtn.style.color = 'white';
+          removeBtn.style.cursor = 'pointer';
+          removeBtn.style.padding = '0';
+          removeBtn.style.fontSize = '16px';
+          removeBtn.style.lineHeight = '1';
+          removeBtn.style.marginLeft = '6px';
+          
+          // Use event listener instead of inline onclick (safer)
+          removeBtn.addEventListener('click', () => {
+            removeHighRiskCategory(cat);
+          });
+          
+          tagDiv.appendChild(removeBtn);
+          container.appendChild(tagDiv);
+        });
       }
       
       // Add high risk category
