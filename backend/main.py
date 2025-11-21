@@ -1257,7 +1257,11 @@ app.add_middleware(
 )
 
 # Load transaction data
-with open("data.json", "r") as f:
+data_path = Path("data.json")
+if not data_path.exists():
+    data_path = Path(__file__).parent / "data.json"
+
+with open(data_path, "r") as f:
     TRANSACTIONS = {t["id"]: Transaction(**t) for t in json.load(f)}
 
 # Initialize RL model manager
@@ -2656,6 +2660,59 @@ def get_system_config(current_user: dict = Depends(get_current_user)) -> SystemC
         )
     
     return config_service.get_system_config()
+
+
+class TransactionInput(BaseModel):
+    amount: float
+    from_account: str
+    to_account: str
+    transaction_type: str
+    category: str
+    location: str
+    channel: str
+
+
+@app.post("/analyze/raw")
+def analyze_incoming_transaction(txn_data: TransactionInput):
+    """Accept raw transaction, add to dataset, and analyze immediately"""
+    # Generate ID and Timestamp
+    new_id = f"T{len(TRANSACTIONS) + 1:06d}"
+    timestamp = datetime.utcnow().isoformat()
+    
+    # Create Transaction Object
+    # Note: We assume incoming is not fraud for initial ingest, 
+    # or you could add is_fraud to input if simulating labeled data
+    txn = Transaction(
+        id=new_id, 
+        timestamp=timestamp, 
+        is_fraud=False, # Default for live ingest
+        **txn_data.model_dump()
+    )
+    
+    # Add to memory (Critical for "learning from experience")
+    TRANSACTIONS[new_id] = txn
+    
+    # Run Agentic Defense
+    decision, confidence = rl_manager.predict(txn)
+    
+    # Log Action
+    audit_service.log(
+        action="DEFENSE_ACTION",
+        resource=new_id,
+        details={
+            "decision": decision, 
+            "confidence": confidence, 
+            "amount": txn.amount
+        },
+        status="success"
+    )
+    
+    return {
+        "txn_id": new_id, 
+        "decision": decision, 
+        "confidence": confidence,
+        "timestamp": timestamp
+    }
 
 
 if __name__ == "__main__":
