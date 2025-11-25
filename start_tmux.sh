@@ -16,22 +16,29 @@ if [ $? != 0 ]; then
     
     # Pane 1: Backend Server (Top Left)
     tmux send-keys -t $SESSION_NAME:backend "cd $BACKEND_DIR" C-m
-    # Check if venv exists, if not create it
-    tmux send-keys -t $SESSION_NAME:backend "if [ ! -d $PYTHON_ENV ]; then python3.11 -m venv $PYTHON_ENV; fi" C-m
-    tmux send-keys -t $SESSION_NAME:backend "source $PYTHON_ENV/bin/activate" C-m
-    tmux send-keys -t $SESSION_NAME:backend "pip install -r requirements.txt" C-m
-    tmux send-keys -t $SESSION_NAME:backend "python main.py" C-m
+    
+    # FORCE REMOVE existing venv to fix OS compatibility issues (in case it was copied)
+    tmux send-keys -t $SESSION_NAME:backend "rm -rf $PYTHON_ENV" C-m
+    
+    # Create new venv using python3 (default available python)
+    tmux send-keys -t $SESSION_NAME:backend "python3 -m venv $PYTHON_ENV" C-m
+    
+    # Install dependencies using the venv's pip explicitly
+    tmux send-keys -t $SESSION_NAME:backend "./$PYTHON_ENV/bin/pip install -r requirements.txt" C-m
+    
+    # Run main.py using venv's python
+    tmux send-keys -t $SESSION_NAME:backend "./$PYTHON_ENV/bin/python main.py" C-m
     
     # Split window horizontally for Live Feed Generator
     tmux split-window -h -t $SESSION_NAME:backend
-    tmux send-keys -t $SESSION_NAME:backend.1 "source $BACKEND_DIR/$PYTHON_ENV/bin/activate" C-m
-    # Wait a bit for backend to start before running generator
-    tmux send-keys -t $SESSION_NAME:backend.1 "sleep 5" C-m
-    tmux send-keys -t $SESSION_NAME:backend.1 "python prod_generator.py" C-m
+    # Ensure we are in the project root for the generator
+    tmux send-keys -t $SESSION_NAME:backend.1 "cd .." C-m
+    tmux send-keys -t $SESSION_NAME:backend.1 "sleep 10" C-m
+    # Use the backend's venv python to run the generator
+    tmux send-keys -t $SESSION_NAME:backend.1 "$BACKEND_DIR/$PYTHON_ENV/bin/python prod_generator.py" C-m
     
     # Split the right pane vertically for System Monitor / Training
     tmux split-window -v -t $SESSION_NAME:backend.1
-    tmux send-keys -t $SESSION_NAME:backend.2 "source $BACKEND_DIR/$PYTHON_ENV/bin/activate" C-m
     tmux send-keys -t $SESSION_NAME:backend.2 "watch -n 1 'curl -s http://localhost:8000/live-feed/status | python3 -m json.tool'" C-m
 
     # Select the backend window
