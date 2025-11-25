@@ -764,7 +764,7 @@ class RLModelManager:
         self.env = FraudDetectionEnv(self.transactions, self.scaler)
         return self.env
     
-    def train_model(self, total_timesteps=20000, user_id: str = None):
+    def train_model(self, total_timesteps=20000, user_id: str = None, continue_training: bool = False):
         """Train PPO model with larger dataset"""
         if self.env is None:
             self.create_environment()
@@ -772,25 +772,32 @@ class RLModelManager:
         # Create vectorized environment with more environments for larger dataset
         vec_env = make_vec_env(lambda: FraudDetectionEnv(self.transactions, self.scaler), n_envs=8)
         
-        # Initialize PPO model with optimized hyperparameters for larger dataset
-        self.model = PPO(
-            "MlpPolicy", 
-            vec_env, 
-            verbose=1, 
-            learning_rate=3e-4,
-            n_steps=2048,  # Larger steps for more data
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
-            vf_coef=0.5,
-            max_grad_norm=0.5
-        )
+        # Initialize or load PPO model
+        if continue_training and self.model is not None:
+            print(f"🔄 Continuing training on existing model with {len(self.transactions)} transactions...")
+            self.model.set_env(vec_env)
+        elif continue_training and self.load_model():
+            print(f"🔄 Loaded existing model for continuous training with {len(self.transactions)} transactions...")
+            self.model.set_env(vec_env)
+        else:
+            print(f"🆕 Initializing new PPO model with {len(self.transactions)} transactions...")
+            self.model = PPO(
+                "MlpPolicy", 
+                vec_env, 
+                verbose=1, 
+                learning_rate=3e-4,
+                n_steps=2048,  # Larger steps for more data
+                batch_size=64,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.01,
+                vf_coef=0.5,
+                max_grad_norm=0.5
+            )
         
         # Train model
-        print(f"🎯 Training RL model on {len(self.transactions)} transactions...")
         self.model.learn(total_timesteps=total_timesteps)
         
         # Generate unique model ID with timestamp
@@ -1266,6 +1273,16 @@ with open(data_path, "r") as f:
 
 # Initialize RL model manager
 rl_manager = RLModelManager(TRANSACTIONS)
+
+# Check for existing model or train one (Cold Start)
+if not rl_manager.load_model():
+    print("⚠️ No trained RL model found. Starting initial training (Cold Start)...")
+    try:
+        # Train a small initial model to ensure functionality using the loaded data
+        rl_manager.train_model(total_timesteps=10000, user_id="system-init")
+        print("✅ Initial model training complete.")
+    except Exception as e:
+        print(f"❌ Initial training failed: {e}")
 
 # Persist last batch for KPI refresh
 LAST_BATCH: List[CaseResult] | None = None
@@ -1842,6 +1859,7 @@ def get_transaction_details(txn_id: str):
 @app.post("/rl/train")
 def train_rl_model(
     timesteps: int = 20000,
+    continue_training: bool = False,
     current_user: dict = Depends(get_current_user)
 ) -> dict:
     """Train the RL fraud detection model (admin only)"""
@@ -1863,7 +1881,8 @@ def train_rl_model(
         try:
             model, model_id = rl_manager.train_model(
                 total_timesteps=timesteps,
-                user_id=current_user["user_id"]
+                user_id=current_user["user_id"],
+                continue_training=continue_training
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Model training failed: {str(e)}")
