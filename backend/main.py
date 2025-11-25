@@ -1704,7 +1704,10 @@ def analyze_batch(current_user: dict = Depends(get_current_user)) -> BatchResult
     global LAST_BATCH, ALL_RESULTS
     results = []
 
-    for txn_id, txn in TRANSACTIONS.items():
+    # Use list of items to safely iterate while dictionary might change
+    current_transactions = list(TRANSACTIONS.items())
+
+    for txn_id, txn in current_transactions:
         valid, error = validate_transaction(txn)
         if not valid:
             results.append(
@@ -2190,9 +2193,11 @@ def analyze_batch_with_rl(current_user: dict = Depends(get_current_user)) -> Bat
                 detail="No RL model available. Please train a model first using the 'Train RL Model' panel."
             )
     
-    results = []
+    # Use a list of keys to avoid runtime error if dictionary changes size
+    txn_ids = list(TRANSACTIONS.keys())
     
-    for txn_id, txn in TRANSACTIONS.items():
+    for txn_id in txn_ids:
+        txn = TRANSACTIONS[txn_id]
         try:
             decision, confidence = rl_manager.predict(txn)
             results.append(
