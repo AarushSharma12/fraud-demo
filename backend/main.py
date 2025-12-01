@@ -1029,6 +1029,192 @@ class LiveTransactionGenerator:
         )
 
 
+# ============ LIVE FEED LOGGING SERVICE ============
+
+class LiveFeedLogger:
+    """Service for logging live feed transactions and tracking performance over time"""
+    
+    def __init__(self, log_dir: Path = None):
+        self.log_dir = log_dir or Path(__file__).parent / "live_feed_logs"
+        self.log_dir.mkdir(exist_ok=True)
+        
+        # Create log file with timestamp
+        self.session_id = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        self.log_file = self.log_dir / f"live_feed_{self.session_id}.jsonl"
+        self.metrics_file = self.log_dir / f"metrics_{self.session_id}.jsonl"
+        
+        # Performance tracking
+        self.performance_history = []
+        self.transaction_count = 0
+        self.rl_correct = 0
+        self.rl_total = 0
+        self.rule_correct = 0
+        self.rule_total = 0
+        
+        # Confusion matrices for both models
+        self.rl_confusion = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+        self.rule_confusion = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+        
+        # Model retraining tracking
+        self.retraining_history = []
+        self.last_retrain_time = None
+        self.transactions_since_retrain = 0
+        self.pending_retrain_update = None  # Store retrain info to update after collecting new data
+    
+    def log_transaction(self, result: dict):
+        """Log a single transaction result"""
+        self.transaction_count += 1
+        self.transactions_since_retrain += 1
+        
+        log_entry = {
+            "transaction_id": result["transaction"].get("transaction_id"),
+            "timestamp": datetime.utcnow().isoformat(),
+            "true_label": result["true_label"],
+            "rule_based_decision": result["rule_based"]["decision"],
+            "rl_decision": result["rl_model"]["decision"],
+            "rl_available": result["rl_model"]["available"],
+            "rl_confidence": result["rl_model"]["confidence"],
+            "rule_confidence": result["rule_based"]["confidence"],
+            "transaction_count": self.transaction_count
+        }
+        
+        # Update performance metrics
+        true_label = result["true_label"]
+        
+        # Rule-based metrics
+        rule_pred = result["rule_based"]["decision"]
+        if rule_pred == true_label:
+            self.rule_correct += 1
+        self._update_confusion(self.rule_confusion, rule_pred, true_label)
+        self.rule_total += 1
+        
+        # RL model metrics (if available)
+        if result["rl_model"]["available"] and result["rl_model"]["decision"]:
+            rl_pred = result["rl_model"]["decision"]
+            if rl_pred == true_label:
+                self.rl_correct += 1
+            self._update_confusion(self.rl_confusion, rl_pred, true_label)
+            self.rl_total += 1
+        
+        # Write to log file
+        with open(self.log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+        
+        # Periodically log performance metrics (every 100 transactions)
+        if self.transaction_count % 100 == 0:
+            self._log_performance_metrics()
+            
+            # Update pending retraining metrics if we have enough new data
+            if self.pending_retrain_update and self.rl_total >= 100:
+                # Update the last retraining entry with actual improved metrics
+                if self.retraining_history:
+                    current_metrics = self.get_current_metrics()
+                    if current_metrics.get("rl_model"):
+                        self.retraining_history[-1]["metrics_after"] = current_metrics["rl_model"].copy()
+                        # Recalculate improvement
+                        metrics_before = self.retraining_history[-1]["metrics_before"]
+                        metrics_after = current_metrics["rl_model"]
+                        self.retraining_history[-1]["improvement"] = {
+                            "accuracy_delta": round(metrics_after.get("accuracy", 0) - metrics_before.get("accuracy", 0), 4),
+                            "precision_delta": round(metrics_after.get("precision", 0) - metrics_before.get("precision", 0), 4),
+                            "recall_delta": round(metrics_after.get("recall", 0) - metrics_before.get("recall", 0), 4),
+                            "f1_delta": round(metrics_after.get("f1_score", 0) - metrics_before.get("f1_score", 0), 4)
+                        }
+                        self.pending_retrain_update = None
+                        print(f"📈 Updated retraining metrics: Accuracy improved by {self.retraining_history[-1]['improvement']['accuracy_delta']:.4f}")
+    
+    def _update_confusion(self, confusion: dict, predicted: str, true_label: str):
+        """Update confusion matrix"""
+        if predicted == "FRAUD" and true_label == "FRAUD":
+            confusion["tp"] += 1
+        elif predicted == "FRAUD" and true_label == "LEGIT":
+            confusion["fp"] += 1
+        elif predicted == "LEGIT" and true_label == "FRAUD":
+            confusion["fn"] += 1
+        elif predicted == "LEGIT" and true_label == "LEGIT":
+            confusion["tn"] += 1
+    
+    def _log_performance_metrics(self):
+        """Log current performance metrics"""
+        metrics = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "transaction_count": self.transaction_count,
+            "rule_based": self._calculate_metrics(self.rule_confusion, self.rule_correct, self.rule_total),
+            "rl_model": self._calculate_metrics(self.rl_confusion, self.rl_correct, self.rl_total) if self.rl_total > 0 else None
+        }
+        
+        self.performance_history.append(metrics)
+        
+        # Write to metrics file
+        with open(self.metrics_file, "a") as f:
+            f.write(json.dumps(metrics) + "\n")
+    
+    def _calculate_metrics(self, confusion: dict, correct: int, total: int):
+        """Calculate precision, recall, accuracy from confusion matrix"""
+        tp, fp, tn, fn = confusion["tp"], confusion["fp"], confusion["tn"], confusion["fn"]
+        
+        accuracy = correct / total if total > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        return {
+            "accuracy": round(accuracy, 4),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+            "true_positives": tp,
+            "false_positives": fp,
+            "true_negatives": tn,
+            "false_negatives": fn,
+            "total": total
+        }
+    
+    def log_retraining(self, model_id: str, metrics_before: dict, metrics_after: dict):
+        """Log model retraining event"""
+        retrain_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "model_id": model_id,
+            "transaction_count": self.transaction_count,
+            "transactions_since_last_retrain": self.transactions_since_retrain,
+            "metrics_before": metrics_before,
+            "metrics_after": metrics_after,
+            "improvement": {
+                "accuracy_delta": round(metrics_after.get("accuracy", 0) - metrics_before.get("accuracy", 0), 4),
+                "precision_delta": round(metrics_after.get("precision", 0) - metrics_before.get("precision", 0), 4),
+                "recall_delta": round(metrics_after.get("recall", 0) - metrics_before.get("recall", 0), 4),
+                "f1_delta": round(metrics_after.get("f1_score", 0) - metrics_before.get("f1_score", 0), 4)
+            }
+        }
+        
+        self.retraining_history.append(retrain_entry)
+        self.last_retrain_time = datetime.utcnow()
+        self.transactions_since_retrain = 0
+        
+        # Write to metrics file
+        with open(self.metrics_file, "a") as f:
+            f.write(json.dumps({"type": "retraining", **retrain_entry}) + "\n")
+    
+    def get_current_metrics(self):
+        """Get current performance metrics"""
+        return {
+            "rule_based": self._calculate_metrics(self.rule_confusion, self.rule_correct, self.rule_total),
+            "rl_model": self._calculate_metrics(self.rl_confusion, self.rl_correct, self.rl_total) if self.rl_total > 0 else None,
+            "transaction_count": self.transaction_count,
+            "retraining_count": len(self.retraining_history)
+        }
+    
+    def get_performance_history(self, limit: int = None):
+        """Get performance history"""
+        if limit:
+            return self.performance_history[-limit:]
+        return self.performance_history
+    
+    def get_retraining_history(self):
+        """Get retraining history"""
+        return self.retraining_history
+
+
 # Global state for live feed
 LIVE_FEED_ACTIVE = False
 LIVE_FEED_QUEUE = deque(maxlen=1000)  # Store last 1000 transactions
@@ -1041,11 +1227,15 @@ LIVE_FEED_STATS = {
 }
 live_feed_index = 0
 live_feed_task = None
+live_feed_logger = None  # Will be initialized when feed starts
 
 
 async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.1):
-    """Background worker that streams existing transactions and evaluates them"""
-    global LIVE_FEED_ACTIVE, LIVE_FEED_QUEUE, LIVE_FEED_STATS, live_feed_index
+    """Background worker that streams existing transactions and evaluates them with continuous learning"""
+    global LIVE_FEED_ACTIVE, LIVE_FEED_QUEUE, LIVE_FEED_STATS, live_feed_index, live_feed_logger
+    
+    # Initialize logger (make it global so endpoints can access it)
+    live_feed_logger = LiveFeedLogger()
     
     # Get all transaction IDs and shuffle them
     transaction_ids = list(TRANSACTIONS.keys())
@@ -1058,6 +1248,14 @@ async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.
     LIVE_FEED_STATS["needs_review"] = 0
     
     live_feed_index = 0
+    
+    # Continuous learning parameters
+    RETRAIN_INTERVAL_TRANSACTIONS = 1000  # Retrain every 1000 transactions
+    RETRAIN_INTERVAL_HOURS = 1.0  # Or retrain every hour (whichever comes first)
+    last_retrain_time = datetime.utcnow()
+    
+    print(f"🚀 Live feed started with logging. Session ID: {live_feed_logger.session_id}")
+    print(f"📊 Log files: {live_feed_logger.log_file.name}, {live_feed_logger.metrics_file.name}")
     
     while LIVE_FEED_ACTIVE:
         try:
@@ -1099,6 +1297,9 @@ async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.
                 "timestamp": txn.timestamp
             }
             
+            # Log transaction
+            live_feed_logger.log_transaction(result)
+            
             # Add to queue
             LIVE_FEED_QUEUE.append(result)
             LIVE_FEED_STATS["total_streamed"] += 1
@@ -1111,12 +1312,120 @@ async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.
             elif decision.decision == "NEEDS_REVIEW":
                 LIVE_FEED_STATS["needs_review"] += 1
             
+            # Continuous learning: Retrain model periodically
+            should_retrain = False
+            retrain_reason = ""
+            
+            # Check if we should retrain based on transaction count
+            if live_feed_logger.transactions_since_retrain >= RETRAIN_INTERVAL_TRANSACTIONS:
+                should_retrain = True
+                retrain_reason = f"transaction count ({live_feed_logger.transactions_since_retrain} transactions)"
+            
+            # Check if we should retrain based on time
+            time_since_retrain = (datetime.utcnow() - last_retrain_time).total_seconds() / 3600
+            if time_since_retrain >= RETRAIN_INTERVAL_HOURS:
+                should_retrain = True
+                retrain_reason = f"time interval ({time_since_retrain:.2f} hours)"
+            
+            # Retrain if needed and RL model is available
+            if should_retrain and rl_manager.model is not None:
+                try:
+                    print(f"🔄 Retraining RL model (reason: {retrain_reason})...")
+                    
+                    # Get metrics before retraining
+                    current_metrics = live_feed_logger.get_current_metrics()
+                    metrics_before = current_metrics.get("rl_model")
+                    
+                    if metrics_before:
+                        # Store metrics before retraining
+                        metrics_before_copy = metrics_before.copy()
+                        
+                        # Incremental learning: continue training existing model
+                        if rl_manager.model is not None:
+                            # Continue training the existing model (incremental learning)
+                            print(f"   Continuing training from existing model...")
+                            
+                            # Ensure environment is set up
+                            if rl_manager.env is None:
+                                rl_manager.create_environment()
+                            
+                            # Create vectorized environment for training
+                            vec_env = make_vec_env(
+                                lambda: FraudDetectionEnv(rl_manager.transactions, rl_manager.scaler), 
+                                n_envs=4  # Use fewer envs for faster incremental training
+                            )
+                            
+                            # Set the environment and continue training
+                            rl_manager.model.set_env(vec_env)
+                            rl_manager.model.learn(total_timesteps=5000)  # Additional training steps
+                            
+                            # Generate new model ID
+                            model_id = f"model_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_live_feed_auto"
+                            
+                            # Save the improved model
+                            model_file = rl_manager.models_dir / f"{model_id}.pkl"
+                            scaler_file = rl_manager.models_dir / f"{model_id}_scaler.pkl"
+                            rl_manager.model.save(str(model_file))
+                            with open(scaler_file, 'wb') as f:
+                                pickle.dump(rl_manager.env.scaler, f)
+                            
+                            # Also update the latest model
+                            rl_manager.model.save(rl_manager.model_path)
+                            with open(rl_manager.scaler_path, 'wb') as f:
+                                pickle.dump(rl_manager.env.scaler, f)
+                        else:
+                            # Train new model if none exists
+                            model, model_id = rl_manager.train_model(
+                                total_timesteps=5000,
+                                user_id="live_feed_auto"
+                            )
+                        
+                        # Reset confusion matrix for RL model to track new performance
+                        # This allows us to see improvement in the next batch
+                        live_feed_logger.rl_confusion = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+                        live_feed_logger.rl_correct = 0
+                        live_feed_logger.rl_total = 0
+                        
+                        # For now, metrics_after will be the same, but will improve as new transactions come in
+                        # We'll update it after collecting some new predictions
+                        metrics_after = metrics_before_copy.copy()
+                        metrics_after["note"] = "Metrics will improve as new transactions are processed"
+                        
+                        # Log retraining event
+                        live_feed_logger.log_retraining(model_id, metrics_before_copy, metrics_after)
+                        
+                        # Mark that we need to update this retraining entry after collecting new data
+                        live_feed_logger.pending_retrain_update = True
+                        
+                        last_retrain_time = datetime.utcnow()
+                        print(f"✅ Model retrained: {model_id}")
+                        print(f"   Metrics before: Accuracy={metrics_before_copy['accuracy']:.4f}, "
+                              f"Precision={metrics_before_copy['precision']:.4f}, "
+                              f"Recall={metrics_before_copy['recall']:.4f}")
+                        print(f"   Model will improve as new transactions are processed...")
+                    else:
+                        print("⚠️  Skipping retrain: Not enough RL model predictions yet")
+                        
+                except Exception as e:
+                    print(f"❌ Error during model retraining: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
             # Wait before next transaction
             await asyncio.sleep(interval_seconds)
             
         except Exception as e:
             print(f"Error in live feed worker: {e}")
+            import traceback
+            traceback.print_exc()
             await asyncio.sleep(interval_seconds)
+    
+    # Final metrics log when feed stops
+    if live_feed_logger:
+        final_metrics = live_feed_logger.get_current_metrics()
+        print(f"📊 Final metrics - Transactions: {final_metrics['transaction_count']}, "
+              f"Retrainings: {final_metrics['retraining_count']}")
+        live_feed_logger._log_performance_metrics()
 
 
 # ============ FASTAPI APP ============
@@ -2361,14 +2670,25 @@ def stop_live_feed(current_user: dict = Depends(get_current_user)):
 @app.get("/live-feed/status")
 def get_live_feed_status(current_user: dict = Depends(get_current_user)):
     """Get live feed status and statistics"""
-    global LIVE_FEED_ACTIVE, LIVE_FEED_STATS, LIVE_FEED_QUEUE
+    global LIVE_FEED_ACTIVE, LIVE_FEED_STATS, LIVE_FEED_QUEUE, live_feed_logger
     
-    return {
+    response = {
         "active": LIVE_FEED_ACTIVE,
         "stats": LIVE_FEED_STATS.copy(),
         "queue_size": len(LIVE_FEED_QUEUE),
         "latest_transactions": list(LIVE_FEED_QUEUE)[-10:] if LIVE_FEED_QUEUE else []
     }
+    
+    # Add performance metrics if logger is available
+    if live_feed_logger:
+        response["performance_metrics"] = live_feed_logger.get_current_metrics()
+        response["session_id"] = live_feed_logger.session_id
+        response["log_files"] = {
+            "transactions": str(live_feed_logger.log_file.name),
+            "metrics": str(live_feed_logger.metrics_file.name)
+        }
+    
+    return response
 
 
 @app.get("/live-feed/stream")
@@ -2405,6 +2725,138 @@ async def stream_live_feed(current_user: dict = Depends(get_current_user)):
             "X-Accel-Buffering": "no"  # Disable buffering in nginx
         }
     )
+
+
+# ============ LIVE FEED LOGS API ENDPOINTS ============
+
+@app.get("/live-feed/logs/metrics")
+def get_live_feed_metrics(
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get performance metrics history from live feed"""
+    global live_feed_logger
+    
+    if not live_feed_logger:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Live feed logger not available. Start the live feed first."
+        )
+    
+    history = live_feed_logger.get_performance_history(limit=limit)
+    retraining_history = live_feed_logger.get_retraining_history()
+    
+    return {
+        "performance_history": history,
+        "retraining_history": retraining_history,
+        "current_metrics": live_feed_logger.get_current_metrics(),
+        "session_id": live_feed_logger.session_id
+    }
+
+
+@app.get("/live-feed/logs/transactions")
+def get_live_feed_transactions(
+    limit: int = 1000,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get logged transactions from live feed"""
+    global live_feed_logger
+    
+    if not live_feed_logger:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Live feed logger not available. Start the live feed first."
+        )
+    
+    if not live_feed_logger.log_file.exists():
+        return {
+            "transactions": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset
+        }
+    
+    # Read transactions from log file
+    transactions = []
+    with open(live_feed_logger.log_file, "r") as f:
+        lines = f.readlines()
+        total = len(lines)
+        
+        # Get requested range (reverse order - most recent first)
+        start = max(0, total - offset - limit)
+        end = total - offset
+        
+        for line in lines[start:end]:
+            try:
+                transactions.append(json.loads(line.strip()))
+            except:
+                continue
+    
+    # Reverse to show most recent first
+    transactions.reverse()
+    
+    return {
+        "transactions": transactions,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "session_id": live_feed_logger.session_id
+    }
+
+
+@app.get("/live-feed/logs/download")
+def download_live_feed_logs(
+    log_type: str = "all",  # "transactions", "metrics", or "all"
+    current_user: dict = Depends(get_current_user)
+):
+    """Download live feed logs as files"""
+    global live_feed_logger
+    
+    if not live_feed_logger:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Live feed logger not available. Start the live feed first."
+        )
+    
+    from fastapi.responses import FileResponse
+    
+    if log_type == "transactions":
+        if live_feed_logger.log_file.exists():
+            return FileResponse(
+                str(live_feed_logger.log_file),
+                media_type="application/json",
+                filename=f"live_feed_transactions_{live_feed_logger.session_id}.jsonl"
+            )
+    elif log_type == "metrics":
+        if live_feed_logger.metrics_file.exists():
+            return FileResponse(
+                str(live_feed_logger.metrics_file),
+                media_type="application/json",
+                filename=f"live_feed_metrics_{live_feed_logger.session_id}.jsonl"
+            )
+    elif log_type == "all":
+        # Create a zip file with both logs
+        import zipfile
+        import tempfile
+        
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
+            if live_feed_logger.log_file.exists():
+                zipf.write(live_feed_logger.log_file, f"transactions_{live_feed_logger.session_id}.jsonl")
+            if live_feed_logger.metrics_file.exists():
+                zipf.write(live_feed_logger.metrics_file, f"metrics_{live_feed_logger.session_id}.jsonl")
+        
+        return FileResponse(
+            temp_zip.name,
+            media_type="application/zip",
+            filename=f"live_feed_logs_{live_feed_logger.session_id}.zip"
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="log_type must be 'transactions', 'metrics', or 'all'"
+        )
 
 
 # ============ AUDIT LOG API ENDPOINTS ============
