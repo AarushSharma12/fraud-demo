@@ -33,7 +33,10 @@ tmux send-keys -t $SESSION_NAME:backend "$VENV_PATH/bin/python main.py" C-m
 tmux split-window -h -t $SESSION_NAME:backend
 # Use absolute path to be safe
 tmux send-keys -t $SESSION_NAME:backend.1 "cd $WORK_DIR" C-m
-tmux send-keys -t $SESSION_NAME:backend.1 "sleep 10" C-m
+# Wait for backend to be ready (check every 5 seconds, up to 2 minutes)
+tmux send-keys -t $SESSION_NAME:backend.1 "echo '⏳ Waiting for backend to start...'" C-m
+tmux send-keys -t $SESSION_NAME:backend.1 "until curl -s http://localhost:8004/ > /dev/null 2>&1; do sleep 5; done" C-m
+tmux send-keys -t $SESSION_NAME:backend.1 "echo '✅ Backend ready! Starting generator...'" C-m
 # Run generator using the backend's venv
 tmux send-keys -t $SESSION_NAME:backend.1 "$VENV_PATH/bin/python prod_generator.py" C-m
 
