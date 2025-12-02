@@ -41,7 +41,7 @@ tmux send-keys -t $SESSION_NAME:backend.1 "$VENV_PATH/bin/python prod_generator.
 # -------------------------------------
 tmux split-window -v -t $SESSION_NAME:backend.1
 # Check the root endpoint (/) which is public, instead of /live-feed/status
-tmux send-keys -t $SESSION_NAME:backend.2 "watch -n 1 'curl -s http://localhost:8000/ | python3 -m json.tool'" C-m
+tmux send-keys -t $SESSION_NAME:backend.2 "watch -n 1 'curl -s http://localhost:8004/ | python3 -m json.tool'" C-m
 
 # Focus and Attach
 tmux select-window -t $SESSION_NAME:backend

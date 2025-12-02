@@ -84,6 +84,7 @@ To ensure high availability without container orchestration overhead, we utilize
 The application (`main.py`) contains environment-aware logic for the UW CSE environment:
 *   **SSL/TLS Autoconfiguration**: Automatically detects valid certificates in standard UW directories (`/homes/iws/...`) to enable secure HTTPS.
 *   **Reverse Proxy Compatibility**: Handles `X-Forwarded-For` headers correctly when deployed behind Nginx ingress controllers.
+*   **Static Hosting**: The frontend can be deployed to the `homes.cs.washington.edu` web space using the included `deploy_frontend.sh` script, which automates file transfers and permission setting.
 
 ---
 

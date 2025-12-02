@@ -3200,7 +3200,7 @@ if __name__ == "__main__":
     
     if force_http:
         print("🌐 Running with HTTP (FORCE_HTTP enabled - for reverse proxy setups)")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=8004)
     else:
         # Get SSL certificate paths from environment or check common locations
         ssl_keyfile = os.getenv("SSL_KEYFILE")
@@ -3243,7 +3243,7 @@ if __name__ == "__main__":
             uvicorn.run(
                 app, 
                 host="0.0.0.0", 
-                port=8000,
+                port=8004,
                 ssl_keyfile=ssl_keyfile,
                 ssl_certfile=ssl_certfile
             )
@@ -3252,4 +3252,4 @@ if __name__ == "__main__":
             print("   To use HTTPS, set SSL_KEYFILE and SSL_CERTFILE environment variables")
             print("   Or set FORCE_HTTP=true if using a reverse proxy (nginx/apache)")
             print("   Note: If using reverse proxy, keep backend on HTTP and configure proxy for HTTPS")
-            uvicorn.run(app, host="0.0.0.0", port=8000)
+            uvicorn.run(app, host="0.0.0.0", port=8004)
