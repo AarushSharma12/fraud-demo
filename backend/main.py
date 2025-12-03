@@ -627,7 +627,12 @@ class FraudDetectionEnv(gym.Env):
         features = []
         for txn in self.transactions.values():
             features.append(self._extract_features(txn))
-        self.scaler.fit(features)
+        # Need at least 2 samples for StandardScaler to compute variance
+        if len(features) >= 2:
+            self.scaler.fit(features)
+        elif len(features) == 1:
+            # With only 1 sample, fit with duplicated data to avoid variance issues
+            self.scaler.fit(features + features)
     
     def _extract_features(self, txn):
         """Extract normalized features from transaction"""
@@ -775,10 +780,12 @@ class RLModelManager:
         # Initialize or load PPO model
         if continue_training and self.model is not None:
             print(f"🔄 Continuing training on existing model with {len(self.transactions)} transactions...")
-            self.model.set_env(vec_env)
+            # Reload model with new env to avoid environment mismatch
+            self.model = PPO.load(self.model_path, env=vec_env)
         elif continue_training and self.load_model():
             print(f"🔄 Loaded existing model for continuous training with {len(self.transactions)} transactions...")
-            self.model.set_env(vec_env)
+            # Reload model with new env to avoid environment mismatch
+            self.model = PPO.load(self.model_path, env=vec_env)
         else:
             print(f"🆕 Initializing new PPO model with {len(self.transactions)} transactions...")
             self.model = PPO(
