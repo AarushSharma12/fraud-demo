@@ -1355,8 +1355,9 @@ async def live_feed_worker(interval_seconds: float = 2.0, fraud_rate: float = 0.
                                 n_envs=4  # Use fewer envs for faster incremental training
                             )
                             
-                            # Set the environment and continue training
-                            rl_manager.model.set_env(vec_env)
+                            # Reload the model with the new environment to avoid env mismatch
+                            # This is required when n_envs differs from original training
+                            rl_manager.model = PPO.load(rl_manager.model_path, env=vec_env)
                             rl_manager.model.learn(total_timesteps=5000)  # Additional training steps
                             
                             # Generate new model ID
