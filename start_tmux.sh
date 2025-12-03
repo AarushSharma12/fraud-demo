@@ -36,7 +36,10 @@ tmux send-keys -t $SESSION_NAME:backend.1 "cd $WORK_DIR" C-m
 # Wait for backend to be ready (check every 5 seconds, up to 2 minutes)
 tmux send-keys -t $SESSION_NAME:backend.1 "echo '⏳ Waiting for backend to start...'" C-m
 tmux send-keys -t $SESSION_NAME:backend.1 "until curl -s http://localhost:8004/ > /dev/null 2>&1; do sleep 5; done" C-m
-tmux send-keys -t $SESSION_NAME:backend.1 "echo '✅ Backend ready! Starting generator...'" C-m
+tmux send-keys -t $SESSION_NAME:backend.1 "echo '✅ Backend ready! Installing requests...'" C-m
+# Ensure requests is installed before running generator
+tmux send-keys -t $SESSION_NAME:backend.1 "$VENV_PATH/bin/pip install -q requests" C-m
+tmux send-keys -t $SESSION_NAME:backend.1 "echo '🚀 Starting generator...'" C-m
 # Run generator using the backend's venv
 tmux send-keys -t $SESSION_NAME:backend.1 "$VENV_PATH/bin/python prod_generator.py" C-m
 

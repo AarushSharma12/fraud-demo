@@ -1,106 +1,222 @@
-# Fraud Detection Co-Pilot: From Static Rules to Adaptive RL
+# Fraud Detection Co-Pilot — Finance — Defense
 
-## Abstract
+**Course:** INFO 498B — Agentic Cybersecurity with AI & LLMs
 
-This project demonstrates the architectural evolution of fraud detection systems, moving from deterministic, rule-based logic to adaptive **Reinforcement Learning (RL)** agents. It serves as a technical proof-of-concept for **Human-AI Collaboration** in high-stakes financial environments, emphasizing **safety**, **governance**, and **explainability** over pure algorithmic performance.
+**Team:** Team 4 — Aarush Sharma, Nausheer Syed, Michael Ibrahim
 
----
-
-## 🧠 Design Philosophy & Ideology
-
-### The Core Hypothesis
-Traditional fraud detection relies on static "if-then" rules (e.g., *if amount > $10,000, flag for review*). While interpretable, these systems are:
-1.  **Rigid**: They fail to adapt to shifting fraud patterns without manual intervention.
-2.  **Binary**: They struggle to capture nuanced, non-linear relationships between features.
-
-Our hypothesis is that a **Proximal Policy Optimization (PPO)** agent, treating fraud detection as a cost-sensitive game, can outperform static baselines by learning to maximize long-term business value rather than just minimizing immediate error rates.
-
-### Safety First: The Governance Layer
-In financial systems, "accuracy" is insufficient; the system must be "safe." We define safety through three pillars implemented in this architecture:
-1.  **Role-Based Access Control (RBAC)**: Enforcing least-privilege access (Viewer vs. Analyst vs. Admin) via simulated hardware tokens (YubiKey).
-2.  **Immutable Audit Trails**: Every decision, login, and model training event is cryptographically logged to a JSONL ledger, ensuring full decision provenance.
-3.  **Privacy by Design**: All API responses automatically mask Personally Identifiable Information (PII) before leaving the secure boundary.
+**One-line pitch:** An adaptive fraud detection system using Reinforcement Learning that learns from analyst feedback to outperform static rule-based systems, designed for financial institutions needing explainable, auditable AI decisions.
 
 ---
 
-## 🏗 Technical Architecture
+## 1) Live Demo
 
-The system mimics a modern microservices architecture, composed of a high-performance backend, an event-driven frontend, and a specialized ML training loop.
+| Component | URL | Status | Notes |
+|-----------|-----|--------|-------|
+| **Synthetic Industry** | `http://is-info492.ischool.uw.edu:8004` | Up | Backend API |
+| **Frontend Dashboard** | [TBD - deploy to homes.cs] | Up | Test creds: `analyst-yubikey-456` / `analyst2024!` |
+| **Logs/Observability** | `/backend/audit_logs/audit.jsonl` | — | Immutable JSONL audit trail |
 
-```mermaid
-graph TD
-    User[Analyst / Admin] -->|HTTPS| Frontend[SPA Frontend]
-    Frontend -->|REST / SSE| API[FastAPI Gateway]
-    
-    subgraph "Core Backend Services"
-        API --> Auth[RBAC & Auth Service]
-        API --> Rules[Deterministic Engine]
-        API --> RL[RL Inference Engine]
-        API --> Audit[Audit Logger]
-    end
-    
-    subgraph "Machine Learning Loop"
-        RL <--> Gym[Custom Gym Environment]
-        Gym --> PPO[Stable-Baselines3 PPO]
-    end
-    
-    subgraph "Data Persistence"
-        Audit --> Logs[(Audit.jsonl)]
-        RL --> Models[(Model Checkpoints)]
-    end
+---
+
+## 2) Thesis & Outcome
+
+**Original thesis (week 2):**
+> A Proximal Policy Optimization (PPO) agent treating fraud detection as a cost-sensitive game can outperform static rule-based baselines by learning to maximize long-term business value rather than just minimizing immediate error rates.
+
+**Final verdict:** [True / False / Partially true — TBD after experiments]
+
+**Why (top evidence):**
+1. [Evidence 1 — TBD]
+2. [Evidence 2 — TBD]
+3. [Evidence 3 — TBD]
+
+---
+
+## 3) What We Built
+
+### Synthetic Industry
+- **FastAPI Backend** (43 endpoints) — Transaction analysis, model training, live feed streaming
+- **Transaction Generator** (`prod_generator.py`) — Monte Carlo simulation producing realistic fraud patterns (velocity attacks, geo-anomalies, amount spikes)
+- **1000+ synthetic transactions** with ground-truth labels for training/evaluation
+
+### Agentic System
+- **PPO Agent** (Stable-Baselines3) — Learns APPROVE/DENY/ESCALATE actions from 12-dimensional state space
+- **Custom Gymnasium Environment** — Models fraud detection as sequential decision-making with asymmetric rewards
+- **Deterministic Baseline** — Rule-based engine for A/B comparison
+- **Model Versioning** — Checkpoint storage with performance metrics
+
+### Key Risks Addressed
+- **Adaptive fraud patterns** — RL agent learns to detect evolving attack vectors
+- **False negative cost asymmetry** — 4x penalty for missing fraud vs. false positives
+- **Human-in-the-loop escalation** — Uncertain cases routed to analysts
+- **Audit trail for compliance** — Every decision logged with full provenance
+
+---
+
+## 4) Roles, Auth, Data
+
+### Roles & Permissions
+
+| Role | Train Models | View Models | Analyze Txns | Manage Users |
+|------|--------------|-------------|--------------|--------------|
+| **Admin** | ✅ | ✅ | ✅ | ✅ |
+| **Analyst** | ❌ | ✅ | ✅ | ❌ |
+| **Viewer** | ❌ | ✅ | ✅ | ❌ |
+
+### Authentication
+- **Simulated YubiKey + Password** — Hardware token simulation with OTP verification
+- **Session Tokens** — 8-hour expiry, stored server-side
+- **RBAC Middleware** — Permission checks on every protected endpoint
+
+### Test Credentials (Synthetic)
+```
+Admin:   yubikey_id=admin-yubikey-123   password=admin2024!
+Analyst: yubikey_id=analyst-yubikey-456 password=analyst2024!
+Viewer:  yubikey_id=viewer-yubikey-789  password=viewer2024!
 ```
 
-### 1. The Adaptive Engine (RL)
-Instead of supervised classification, we model fraud detection as a sequential decision-making process using **Gymnasium**:
-*   **State Space**: 12-dimensional vector (normalized transaction amount, velocity, geo-risk, channel risk, etc.).
-*   **Action Space**: Discrete actions: `APPROVE`, `DENY`, `ESCALATE`.
-*   **Reward Function**: asymmetric cost function where False Negatives (missing fraud) are penalized 4x more heavily than False Positives, reflecting real-world risk appetite.
-
-### 2. The Deterministic Engine (Baseline)
-A "control" system implementing standard industry logic:
-*   Velocity checks (transactions per minute).
-*   Geographic anomalies (distance from home location).
-*   Amount thresholds based on historical averages.
-
-### 3. The Backend (FastAPI)
-Built on **FastAPI** for high concurrency:
-*   **Server-Sent Events (SSE)**: used for the live transaction feed to push updates to the client without polling.
-*   **Middleware Chains**: Custom middleware handles request ID generation, PII masking, and audit logging transparently for every request.
+### Data
+- **Synthetic only** — No real PII or financial data
+- **Generator:** `generate_data.py` — Monte Carlo simulation
+- **Schema:** Transaction ID, amount, from/to accounts, type, category, location, channel, velocity metrics, ground-truth label
 
 ---
 
-## ⚙️ Infrastructure & Deployment
+## 5) Experiments Summary (Demos #3 - #5)
 
-The system is designed for resilience and observability, deployed on the University of Washington's **Attu** infrastructure.
+### Demo #3
+- **Hypothesis:** [TBD]
+- **Setup:** [TBD]
+- **Result:** [Pass/Fail + one sentence]
+- **Evidence:** [link/note]
 
-### Production Orchestration (TMUX)
-To ensure high availability without container orchestration overhead, we utilize a `tmux` based process manager (`start_tmux.sh`) that maintains three persistent contexts:
+### Demo #4 (Continuous Run)
+- **Uptime:** [xx.x%]
+- **Incidents:** [n]
+- **Improvement observed:** [Yes/No + brief]
 
-1.  **API Gateway**: The main uvicorn process handling HTTP/S traffic.
-2.  **Traffic Generator**: A background daemon (`prod_generator.py`) that simulates realistic user behavior and fraud attacks (bursts, trickling).
-3.  **Health Monitor**: A real-time `curl` loop verifying API health and latency.
-
-### UW Server Integration
-The application (`main.py`) contains environment-aware logic for the UW CSE environment:
-*   **SSL/TLS Autoconfiguration**: Automatically detects valid certificates in standard UW directories (`/homes/iws/...`) to enable secure HTTPS.
-*   **Reverse Proxy Compatibility**: Handles `X-Forwarded-For` headers correctly when deployed behind Nginx ingress controllers.
-*   **Static Hosting**: The frontend can be deployed to the `homes.cs.washington.edu` web space using the included `deploy_frontend.sh` script, which automates file transfers and permission setting.
+### Demo #5 (Final)
+- **What was validated:** [TBD]
+- **Result:** [one sentence]
+- **Evidence:** [link/note]
 
 ---
 
-## 📂 Project Structure
+## 6) Key Results (Plain Text)
+
+| Metric | Value |
+|--------|-------|
+| **Effectiveness** | RL accuracy: [X%], Rule-based accuracy: [Y%], Improvement: [Z%] |
+| **Reliability** | Uptime: [X%], Mean response time: [Y ms] |
+| **Safety** | Policy violations blocked: [N], Unauthorized access attempts: [M] |
+
+---
+
+## 7) How to Use / Deploy
+
+### Prerequisites
+- Python 3.11+
+- `tmux` (for production orchestration)
+- Network access to UW iSchool servers (for team deployment)
+
+### Environment Variables
+```bash
+# Optional - for HTTPS mode
+SSL_KEYFILE=/path/to/key.pem
+SSL_CERTFILE=/path/to/cert.pem
+FORCE_HTTP=true  # Set if behind reverse proxy
+```
+
+### Deploy Steps
+
+**Local Development:**
+```bash
+cd fraud-demo
+./start.sh
+```
+
+**Production (UW Server):**
+```bash
+ssh <netid>@is-info492.ischool.uw.edu
+cd /srv/teams/team4
+./start_tmux.sh
+```
+
+### Test Steps
+```bash
+# Verify backend is running
+curl http://localhost:8004/
+
+# Train RL model
+curl -X POST "http://localhost:8004/rl/train?timesteps=20000"
+
+# Compare RL vs Rules
+curl -X POST "http://localhost:8004/compare/T0001"
+
+# Run full test suite
+python test_rl.py
+```
+
+---
+
+## 8) Safety, Ethics, Limits
+
+### Data Safety
+- **Synthetic data only** — No real credentials, PII, or organizational systems
+- **PII Masking** — Automatic redaction in API responses
+
+### Controls
+- **Role gating** — RBAC on all sensitive endpoints
+- **Session timeout** — 8-hour automatic expiry
+- **Audit logging** — Immutable JSONL ledger of all actions
+- **Rate limiting** — [TBD if implemented]
+
+### Known Limits / Failure Modes
+- Cold start requires initial training (~16k timesteps, ~30 seconds)
+- Model performance degrades on distribution shift without retraining
+- Single-node deployment (no HA/failover)
+- In-memory session storage (lost on restart)
+
+---
+
+## 9) Final Deliverables
+
+| Deliverable | Link |
+|-------------|------|
+| **1000-word paper** | [TBD] |
+| **Slides** | [TBD] |
+| **Evidence folder** | `/evidence/` |
+| **Demo video** | [TBD] |
+
+---
+
+## 10) Next Steps
+
+1. **Implement continuous learning** — Online model updates from analyst feedback
+2. **Add explainability layer** — SHAP/LIME for decision transparency
+3. **Deploy HA architecture** — Redis sessions, load balancing, model serving
+
+---
+
+## Project Structure
 
 ```
 fraud-demo/
 ├── backend/
-│   ├── main.py              # Core FastAPI application & logic
+│   ├── main.py              # FastAPI application (43 endpoints)
 │   ├── models/              # Serialized PPO models & scalers
-│   ├── audit_logs/          # Immutable audit trails
+│   ├── audit_logs/          # Immutable audit trails (JSONL)
 │   ├── data.json            # Synthetic training dataset
 │   └── requirements.txt     # Python dependencies
 ├── frontend/
-│   └── index.html           # Event-driven UI (Vanilla JS)
-├── generate_data.py         # Monte Carlo simulation for transaction data
-├── start_tmux.sh            # Production process orchestrator
-└── test_rl.py               # CLI verification tool for RL agents
+│   └── index.html           # Event-driven UI (Vanilla JS + SSE)
+├── generate_data.py         # Monte Carlo transaction generator
+├── prod_generator.py        # Live traffic simulator
+├── start_tmux.sh            # Production orchestrator
+├── start.sh                 # Development startup script
+└── test_rl.py               # CLI verification tool
 ```
+
+---
+
+**Maintainers:** Aarush Sharma • **Contact:** [your-email@uw.edu]
