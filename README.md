@@ -1,10 +1,10 @@
-# Fraud Detection Co-Pilot — Finance — Defense
+# Defense-First AI in Finance — Financial Services — Defense
 
 **Course:** INFO 498B — Agentic Cybersecurity with AI & LLMs
 
 **Team:** Team 4 — Aarush Sharma, Nausheer Syed, Michael Ibrahim
 
-**One-line pitch:** An adaptive fraud detection system using Reinforcement Learning that learns from analyst feedback to outperform static rule-based systems, designed for financial institutions needing explainable, auditable AI decisions.
+**One-line pitch:** An autonomous RL-based fraud detection agent that reduces false positives by 99.6% compared to static rules, enabling financial institutions to protect customers without drowning analysts in false alarms.
 
 ---
 
@@ -12,44 +12,54 @@
 
 | Component | URL | Status | Notes |
 |-----------|-----|--------|-------|
-| **Synthetic Industry** | `http://is-info492.ischool.uw.edu:8004` | Up | Backend API |
-| **Frontend Dashboard** | [TBD - deploy to homes.cs] | Up | Test creds: `analyst-yubikey-456` / `analyst2024!` |
+| **Synthetic Industry** | `http://is-info492.ischool.uw.edu:8004` | Up | FastAPI backend processing transactions |
+| **Agentic System** | Same endpoint (`/rl/*` routes) | Up | PPO agent with continuous learning |
 | **Logs/Observability** | `/backend/audit_logs/audit.jsonl` | — | Immutable JSONL audit trail |
+
+**Test Credentials (Synthetic):**
+| Role | YubiKey ID | Password |
+|------|------------|----------|
+| Admin | `admin-yubikey-123` | `admin2024!` |
+| Analyst | `analyst-yubikey-456` | `analyst2024!` |
+| Viewer | `viewer-yubikey-789` | `viewer2024!` |
 
 ---
 
 ## 2) Thesis & Outcome
 
-**Original thesis (week 2):**
-> A Proximal Policy Optimization (PPO) agent treating fraud detection as a cost-sensitive game can outperform static rule-based baselines by learning to maximize long-term business value rather than just minimizing immediate error rates.
+**Original thesis (Week 2):**
+> Finance organizations should deploy defense-first, evaluable AI agents that detect and explain adversarial behavior in real time, recommend actions with provenance, require human approval for high-risk operations, and are governed under explicit MRM controls. Such an autonomous agent would surpass static baselines by dynamically maximizing reward metrics without human intervention.
 
-**Final verdict:** [True / False / Partially true — TBD after experiments]
+**Final verdict:** ✅ **Partially True**
 
 **Why (top evidence):**
-1. [Evidence 1 — TBD]
-2. [Evidence 2 — TBD]
-3. [Evidence 3 — TBD]
+
+1. **Governance Validated (TRUE):** RBAC system successfully enforced segregation of duty—ML Engineers blocked from production controls, full audit provenance maintained.
+
+2. **Efficiency Validated (TRUE):** RL model achieved **50% precision** vs 19.2% for rules, with **99.6% fewer false positives** (184 vs 43,038).
+
+3. **Protection Superiority (FALSE):** RL recall was only **20.5%** vs 91.6% for rule-based—the agent became "conservative" to avoid false positives, missing 80% of fraud.
 
 ---
 
 ## 3) What We Built
 
 ### Synthetic Industry
-- **FastAPI Backend** (43 endpoints) — Transaction analysis, model training, live feed streaming
-- **Transaction Generator** (`prod_generator.py`) — Monte Carlo simulation producing realistic fraud patterns (velocity attacks, geo-anomalies, amount spikes)
-- **1000+ synthetic transactions** with ground-truth labels for training/evaluation
+- **FastAPI Backend** — 43 REST endpoints for transaction analysis, model training, live streaming
+- **Transaction Generator** — Monte Carlo simulation producing realistic fraud patterns (velocity attacks, geo-anomalies, amount spikes)
+- **271,347+ synthetic transactions** with ground-truth labels for training/evaluation
 
 ### Agentic System
 - **PPO Agent** (Stable-Baselines3) — Learns APPROVE/DENY/ESCALATE actions from 12-dimensional state space
 - **Custom Gymnasium Environment** — Models fraud detection as sequential decision-making with asymmetric rewards
-- **Deterministic Baseline** — Rule-based engine for A/B comparison
-- **Model Versioning** — Checkpoint storage with performance metrics
+- **Deterministic Baseline** — Static rule-based engine for A/B comparison
+- **Auto-Retraining Loop** — Continuous learning from live feed data
 
 ### Key Risks Addressed
-- **Adaptive fraud patterns** — RL agent learns to detect evolving attack vectors
-- **False negative cost asymmetry** — 4x penalty for missing fraud vs. false positives
-- **Human-in-the-loop escalation** — Uncertain cases routed to analysts
-- **Audit trail for compliance** — Every decision logged with full provenance
+- ✅ False positive fatigue (99.6% reduction)
+- ✅ Audit trail for compliance (immutable JSONL logging)
+- ✅ Role-based access control (Admin/Analyst/Viewer segregation)
+- ⚠️ Low recall on fraud detection (needs hybrid approach)
 
 ---
 
@@ -68,47 +78,56 @@
 - **Session Tokens** — 8-hour expiry, stored server-side
 - **RBAC Middleware** — Permission checks on every protected endpoint
 
-### Test Credentials (Synthetic)
-```
-Admin:   yubikey_id=admin-yubikey-123   password=admin2024!
-Analyst: yubikey_id=analyst-yubikey-456 password=analyst2024!
-Viewer:  yubikey_id=viewer-yubikey-789  password=viewer2024!
-```
-
 ### Data
 - **Synthetic only** — No real PII or financial data
-- **Generator:** `generate_data.py` — Monte Carlo simulation
+- **Generator:** Monte Carlo simulation with configurable fraud probability
 - **Schema:** Transaction ID, amount, from/to accounts, type, category, location, channel, velocity metrics, ground-truth label
 
 ---
 
 ## 5) Experiments Summary (Demos #3 - #5)
 
-### Demo #3
-- **Hypothesis:** [TBD]
-- **Setup:** [TBD]
-- **Result:** [Pass/Fail + one sentence]
-- **Evidence:** [link/note]
+### Demo #3: Governance & Provenance
+- **Hypothesis:** AI agents can be wrapped in a permissioned layer enforcing RBAC
+- **Setup:** Deployed RBAC with Admin/Analyst/Viewer roles, audit logging enabled
+- **Result:** ✅ **PASS** — Segregation of duty enforced; ML Engineers blocked from production controls
+- **Evidence:** Audit logs showing role-gated access attempts
 
-### Demo #4 (Continuous Run)
-- **Uptime:** [xx.x%]
-- **Incidents:** [n]
-- **Improvement observed:** [Yes/No + brief]
+### Demo #4: Continuous Autonomy (72-hour run)
+- **Uptime:** 100% (14,594 transactions processed overnight)
+- **Incidents:** 1 (server migration from CSE to iSchool—recovered automatically)
+- **Improvement observed:** ✅ Yes — Agent accuracy improved from 0% to ~60% without human intervention
+- **Evidence:** Server logs showing autonomous weight updates
 
-### Demo #5 (Final)
-- **What was validated:** [TBD]
-- **Result:** [one sentence]
-- **Evidence:** [link/note]
+### Demo #5: RL vs Static Baseline
+- **What was validated:** Head-to-head comparison on 271,347 transactions
+- **Result:** Mixed — RL achieved 2.6x better precision but 4.5x worse recall
+- **Evidence:** 
+
+| Metric | Rule-Based | RL Model | Winner |
+|--------|-----------|----------|--------|
+| Precision | 19.2% | **50.0%** | RL |
+| False Positives | 71,912 | **290** | RL |
+| Recall | **91.6%** | 20.5% | Rules |
 
 ---
 
 ## 6) Key Results (Plain Text)
 
-| Metric | Value |
-|--------|-------|
-| **Effectiveness** | RL accuracy: [X%], Rule-based accuracy: [Y%], Improvement: [Z%] |
-| **Reliability** | Uptime: [X%], Mean response time: [Y ms] |
-| **Safety** | Policy violations blocked: [N], Unauthorized access attempts: [M] |
+### Effectiveness
+- **Precision improvement:** 2.6x (19.2% → 50.0%)
+- **False positive reduction:** 99.6% (71,912 → 290)
+- **Recall gap:** -77% (91.6% → 20.5%) — critical weakness
+
+### Reliability
+- **Uptime:** 100% over 72-hour continuous run
+- **Latency:** 6-17ms per transaction analysis
+- **Throughput:** 271,347 transactions processed
+
+### Safety
+- **RBAC violations blocked:** All unauthorized training attempts rejected
+- **Audit coverage:** 100% of actions logged with provenance
+- **Critical guardrail:** Human review escalation for uncertain cases (NEEDS_REVIEW action)
 
 ---
 
@@ -117,44 +136,47 @@ Viewer:  yubikey_id=viewer-yubikey-789  password=viewer2024!
 ### Prerequisites
 - Python 3.11+
 - `tmux` (for production orchestration)
-- Network access to UW iSchool servers (for team deployment)
+- SSH access to UW iSchool server
 
 ### Environment Variables
 ```bash
-# Optional - for HTTPS mode
-SSL_KEYFILE=/path/to/key.pem
-SSL_CERTFILE=/path/to/cert.pem
-FORCE_HTTP=true  # Set if behind reverse proxy
+SSL_KEYFILE=/path/to/key.pem      # Optional for HTTPS
+SSL_CERTFILE=/path/to/cert.pem    # Optional for HTTPS
+FORCE_HTTP=true                    # Set if behind reverse proxy
 ```
 
 ### Deploy Steps
-
-**Local Development:**
 ```bash
-cd fraud-demo
-./start.sh
-```
-
-**Production (UW Server):**
-```bash
+# SSH to server
 ssh <netid>@is-info492.ischool.uw.edu
 cd /srv/teams/team4
+
+# Start all services
 ./start_tmux.sh
+
+# Detach: Ctrl+B then d
+# Reattach: tmux attach -t fraud-demo
 ```
 
 ### Test Steps
 ```bash
-# Verify backend is running
-curl http://localhost:8004/
+# Get auth token
+TOKEN=$(curl -s -X POST "http://localhost:8004/auth/yubikey/auto-login" \
+  -H "Content-Type: application/json" \
+  -d '{"yubikey_id": "admin-yubikey-123", "password": "admin2024!"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['session_token'])")
 
-# Train RL model
-curl -X POST "http://localhost:8004/rl/train?timesteps=20000"
+# Check metrics
+curl -s "http://localhost:8004/live-feed/status" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Train model
+curl -X POST "http://localhost:8004/rl/train?timesteps=50000" \
+  -H "Authorization: Bearer $TOKEN"
 
 # Compare RL vs Rules
-curl -X POST "http://localhost:8004/compare/T0001"
-
-# Run full test suite
-python test_rl.py
+curl -X POST "http://localhost:8004/compare/T103405" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -162,20 +184,21 @@ python test_rl.py
 ## 8) Safety, Ethics, Limits
 
 ### Data Safety
-- **Synthetic data only** — No real credentials, PII, or organizational systems
-- **PII Masking** — Automatic redaction in API responses
+- ✅ **Synthetic data only** — No real credentials, PII, or organizational systems
+- ✅ **PII masking** — Automatic redaction in API responses
 
 ### Controls
 - **Role gating** — RBAC on all sensitive endpoints
 - **Session timeout** — 8-hour automatic expiry
 - **Audit logging** — Immutable JSONL ledger of all actions
-- **Rate limiting** — [TBD if implemented]
+- **Human escalation** — NEEDS_REVIEW action for uncertain cases
 
 ### Known Limits / Failure Modes
-- Cold start requires initial training (~16k timesteps, ~30 seconds)
-- Model performance degrades on distribution shift without retraining
-- Single-node deployment (no HA/failover)
-- In-memory session storage (lost on restart)
+1. **Low recall (20.5%)** — Agent too conservative; misses 80% of fraud
+2. **Cold start** — Requires initial training (~50k timesteps, ~75 seconds)
+3. **Single-node deployment** — No HA/failover
+4. **In-memory sessions** — Lost on restart
+5. **Reward function sensitivity** — Agent optimizes for what you measure
 
 ---
 
@@ -183,18 +206,20 @@ python test_rl.py
 
 | Deliverable | Link |
 |-------------|------|
-| **1000-word paper** | [TBD] |
-| **Slides** | [TBD] |
+| **1000-word paper** | [Defense-First AI in Finance](./paper.md) |
+| **Slides** | [Google Slides / PDF link TBD] |
 | **Evidence folder** | `/evidence/` |
-| **Demo video** | [TBD] |
+| **Demo recording** | [TBD] |
 
 ---
 
 ## 10) Next Steps
 
-1. **Implement continuous learning** — Online model updates from analyst feedback
-2. **Add explainability layer** — SHAP/LIME for decision transparency
-3. **Deploy HA architecture** — Redis sessions, load balancing, model serving
+1. **Implement Hybrid Approach** — Use static rules as a "floor" that RL filters, rather than replacing entirely. This would maintain high recall while gaining precision benefits.
+
+2. **Tune Reward Function** — Increase `false_negative` penalty from -20 to -50 to make the agent more aggressive at catching fraud, even at the cost of some precision.
+
+3. **Add Explainability Layer** — Integrate SHAP/LIME to explain why the RL agent made each decision, improving analyst trust and regulatory compliance.
 
 ---
 
@@ -219,4 +244,5 @@ fraud-demo/
 
 ---
 
-**Maintainers:** Aarush Sharma • **Contact:** [your-email@uw.edu]
+**Maintainers:** Aarush Sharma, Nausheer Syed, Michael Ibrahim • **Contact:** [as2027@uw.edu | micibr@uw.edu
+| nsyed1@uw.edu]
