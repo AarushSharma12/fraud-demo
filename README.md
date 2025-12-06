@@ -10,10 +10,12 @@
 
 ## 1) Live Demo
 
+> ⚠️ **Server Status:** The UW iSchool servers were decommissioned at the end of Fall 2025. The URLs below were active during the quarter for demos #3-5.
+
 | Component | URL | Status | Notes |
 |-----------|-----|--------|-------|
-| **Synthetic Industry** | `http://is-info492.ischool.uw.edu:8004` | Up | FastAPI backend processing transactions |
-| **Agentic System** | Same endpoint (`/rl/*` routes) | Up | PPO agent with continuous learning |
+| **Synthetic Industry** | `http://is-info492.ischool.uw.edu:8004` | Offline | FastAPI backend (was processing 271k+ transactions) |
+| **Agentic System** | Same endpoint (`/rl/*` routes) | Offline | PPO agent with continuous learning |
 | **Logs/Observability** | `/backend/audit_logs/audit.jsonl` | — | Immutable JSONL audit trail |
 
 **Test Credentials (Synthetic):**
@@ -48,6 +50,14 @@
 
 3. **Protection Superiority (FALSE):** RL recall was only **20.5%** vs 91.6% for rule-based—the agent became "conservative" to avoid false positives, missing 80% of fraud.
 
+### Transaction Comparison: RL vs Rules
+
+<p align="center">
+  <img src="./images/transcation_comparison.png" alt="Transaction Comparison" width="700"/>
+  <br>
+  <em>Figure 2: Side-by-side comparison — Rule-based flags legitimate transaction as FRAUD, RL recommends NEEDS_REVIEW (avoiding false positive)</em>
+</p>
+
 ---
 
 ## 3) What We Built
@@ -68,7 +78,7 @@
 <p align="center">
   <img src="./images/view_reward_weights.png" alt="Reward Weights" width="700"/>
   <br>
-  <em>Figure 2: Tunable reward function — adjust penalties for false negatives vs false positives</em>
+  <em>Figure 3: Tunable reward function — adjust penalties for false negatives vs false positives</em>
 </p>
 
 ### Key Risks Addressed
@@ -92,13 +102,21 @@
 <p align="center">
   <img src="./images/show_RBAC.png" alt="RBAC Demo" width="700"/>
   <br>
-  <em>Figure 3: Role-Based Access Control — different roles have different permissions</em>
+  <em>Figure 4: Role-Based Access Control — different roles have different permissions</em>
 </p>
 
 ### Authentication
 - **Simulated YubiKey + Password** — Hardware token simulation with OTP verification
 - **Session Tokens** — 8-hour expiry, stored server-side
 - **RBAC Middleware** — Permission checks on every protected endpoint
+
+### RBAC in Action: Viewer Blocked from Training
+
+<p align="center">
+  <img src="./images/rbac_denial.png" alt="RBAC Denial" width="700"/>
+  <br>
+  <em>Figure 5: Governance enforced — Viewer role denied access to model training endpoint</em>
+</p>
 
 ### Data
 - **Synthetic only** — No real PII or financial data
@@ -108,6 +126,8 @@
 ---
 
 ## 5) Experiments Summary (Demos #3 - #5)
+
+> 📅 **Timeline:** These experiments were conducted during Fall 2025 on UW iSchool infrastructure.
 
 ### Demo #3: Governance & Provenance
 - **Hypothesis:** AI agents can be wrapped in a permissioned layer enforcing RBAC
@@ -135,7 +155,7 @@
 <p align="center">
   <img src="./images/performance_metrics.png" alt="Performance Metrics" width="800"/>
   <br>
-  <em>Figure 4: Head-to-head comparison — RL vs Rule-Based performance metrics</em>
+  <em>Figure 6: Head-to-head comparison — RL vs Rule-Based performance metrics</em>
 </p>
 
 ---
@@ -162,39 +182,44 @@
 <p align="center">
   <img src="./images/quickstats.png" alt="Quick Stats" width="700"/>
   <br>
-  <em>Figure 5: Real-time metrics dashboard showing transaction counts and detection rates</em>
+  <em>Figure 7: Real-time metrics dashboard showing transaction counts and detection rates</em>
 </p>
 
 ---
 
-## 7) How to Use / Deploy
+## 7) How We Deployed (Quarter Documentation)
 
-### Prerequisites
-- Python 3.11+
-- `tmux` (for production orchestration)
-- SSH access to UW iSchool server
+> ⚠️ **Note:** The UW iSchool servers (`is-info492.ischool.uw.edu`) were decommissioned at the end of the quarter. This section documents how we deployed and operated the system during the course.
 
-### Environment Variables
-```bash
-SSL_KEYFILE=/path/to/key.pem      # Optional for HTTPS
-SSL_CERTFILE=/path/to/cert.pem    # Optional for HTTPS
-FORCE_HTTP=true                    # Set if behind reverse proxy
-```
+### Infrastructure Used
+- **Server:** `is-info492.ischool.uw.edu` (UW iSchool shared infrastructure)
+- **Port:** 8004 (Team 4's assigned port)
+- **Path:** `/srv/teams/team4/`
+- **Runtime:** Python 3.11 virtual environment
 
-### Deploy Steps
+### Deployment Process
+
+We used a `tmux`-based orchestration script (`start_tmux.sh`) that created a 3-pane dashboard:
+
 ```bash
 # SSH to server
 ssh <netid>@is-info492.ischool.uw.edu
 cd /srv/teams/team4
 
-# Start all services
+# Start all services (creates 3 tmux panes)
 ./start_tmux.sh
 
-# Detach: Ctrl+B then d
-# Reattach: tmux attach -t fraud-demo
+# Detach (keeps running): Ctrl+B then d
+# Reattach later: tmux attach -t fraud-demo
 ```
 
-### Test Steps
+**The three panes:**
+1. **Left:** FastAPI backend on port 8004
+2. **Top-right:** Traffic generator (synthetic transactions every 5s)
+3. **Bottom-right:** Health monitor (curl loop checking API status)
+
+### How We Tested
+
 ```bash
 # Get auth token
 TOKEN=$(curl -s -X POST "http://localhost:8004/auth/yubikey/auto-login" \
@@ -202,17 +227,40 @@ TOKEN=$(curl -s -X POST "http://localhost:8004/auth/yubikey/auto-login" \
   -d '{"yubikey_id": "admin-yubikey-123", "password": "admin2024!"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['session_token'])")
 
-# Check metrics
+# Check live metrics
 curl -s "http://localhost:8004/live-feed/status" \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
-# Train model
+# Train RL model (50k timesteps, ~75 seconds)
 curl -X POST "http://localhost:8004/rl/train?timesteps=50000" \
   -H "Authorization: Bearer $TOKEN"
 
-# Compare RL vs Rules
+# Compare RL vs Rules on a transaction
 curl -X POST "http://localhost:8004/compare/T103405" \
   -H "Authorization: Bearer $TOKEN"
+```
+
+### Running Locally (For Future Use)
+
+To run this project locally:
+
+```bash
+# Clone the repo
+git clone https://github.com/AarushSharma12/fraud-demo.git
+cd fraud-demo
+
+# Create virtual environment
+cd backend
+python3.11 -m venv .venv311
+source .venv311/bin/activate
+pip install -r requirements.txt
+
+# Start the backend (runs on port 8004)
+python main.py
+
+# In another terminal, start the traffic generator
+cd fraud-demo
+./backend/.venv311/bin/python prod_generator.py
 ```
 
 ---
@@ -234,7 +282,7 @@ curl -X POST "http://localhost:8004/compare/T103405" \
 <p align="center">
   <img src="./images/auditlogs.png" alt="Audit Logs" width="700"/>
   <br>
-  <em>Figure 6: Immutable audit logs — every action logged with user, timestamp, and outcome</em>
+  <em>Figure 8: Immutable audit logs — every action logged with user, timestamp, and outcome</em>
 </p>
 
 ### Known Limits / Failure Modes
