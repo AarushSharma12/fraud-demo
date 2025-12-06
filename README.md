@@ -2,7 +2,7 @@
 
 **Course:** INFO 498B — Agentic Cybersecurity with AI & LLMs
 
-**Team:** Team 4 — Aarush Sharma, Nausheer Syed, Michael Ibrahim
+**Team:** Team 4 — Aarush Sharma (as2027), Nausheer Syed (nsyed1), Michael Ibrahim (micibr)
 
 **One-line pitch:** An autonomous RL-based fraud detection agent that reduces false positives by 99.6% compared to static rules, enabling financial institutions to protect customers without drowning analysts in false alarms.
 
@@ -294,18 +294,7 @@ cd fraud-demo
 
 ---
 
-## 9) Final Deliverables
-
-| Deliverable | Link |
-|-------------|------|
-| **1000-word paper** | [Defense-First AI in Finance](./paper.md) |
-| **Slides** | [Google Slides / PDF link TBD] |
-| **Evidence folder** | `/evidence/` |
-| **Demo recording** | [TBD] |
-
----
-
-## 10) Next Steps
+## 9) Next Steps
 
 1. **Implement Hybrid Approach** — Use static rules as a "floor" that RL filters, rather than replacing entirely. This would maintain high recall while gaining precision benefits.
 
