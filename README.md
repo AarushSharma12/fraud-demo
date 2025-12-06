@@ -23,6 +23,14 @@
 | Analyst | `analyst-yubikey-456` | `analyst2024!` |
 | Viewer | `viewer-yubikey-789` | `viewer2024!` |
 
+### Live Dashboard (Tmux)
+
+<p align="center">
+  <img src="./images/tmux.png" alt="Tmux Dashboard" width="900"/>
+  <br>
+  <em>Figure 1: Three-pane tmux dashboard — Backend Server (left), Traffic Generator (top-right), Health Monitor (bottom-right)</em>
+</p>
+
 ---
 
 ## 2) Thesis & Outcome
@@ -55,6 +63,14 @@
 - **Deterministic Baseline** — Static rule-based engine for A/B comparison
 - **Auto-Retraining Loop** — Continuous learning from live feed data
 
+### Configurable Reward Weights
+
+<p align="center">
+  <img src="./images/view_reward_weights.png" alt="Reward Weights" width="700"/>
+  <br>
+  <em>Figure 2: Tunable reward function — adjust penalties for false negatives vs false positives</em>
+</p>
+
 ### Key Risks Addressed
 - ✅ False positive fatigue (99.6% reduction)
 - ✅ Audit trail for compliance (immutable JSONL logging)
@@ -72,6 +88,12 @@
 | **Admin** | ✅ | ✅ | ✅ | ✅ |
 | **Analyst** | ❌ | ✅ | ✅ | ❌ |
 | **Viewer** | ❌ | ✅ | ✅ | ❌ |
+
+<p align="center">
+  <img src="./images/show_RBAC.png" alt="RBAC Demo" width="700"/>
+  <br>
+  <em>Figure 3: Role-Based Access Control — different roles have different permissions</em>
+</p>
 
 ### Authentication
 - **Simulated YubiKey + Password** — Hardware token simulation with OTP verification
@@ -110,6 +132,12 @@
 | False Positives | 71,912 | **290** | RL |
 | Recall | **91.6%** | 20.5% | Rules |
 
+<p align="center">
+  <img src="./images/performance_metrics.png" alt="Performance Metrics" width="800"/>
+  <br>
+  <em>Figure 4: Head-to-head comparison — RL vs Rule-Based performance metrics</em>
+</p>
+
 ---
 
 ## 6) Key Results (Plain Text)
@@ -128,6 +156,14 @@
 - **RBAC violations blocked:** All unauthorized training attempts rejected
 - **Audit coverage:** 100% of actions logged with provenance
 - **Critical guardrail:** Human review escalation for uncertain cases (NEEDS_REVIEW action)
+
+### Quick Stats Dashboard
+
+<p align="center">
+  <img src="./images/quickstats.png" alt="Quick Stats" width="700"/>
+  <br>
+  <em>Figure 5: Real-time metrics dashboard showing transaction counts and detection rates</em>
+</p>
 
 ---
 
@@ -193,6 +229,14 @@ curl -X POST "http://localhost:8004/compare/T103405" \
 - **Audit logging** — Immutable JSONL ledger of all actions
 - **Human escalation** — NEEDS_REVIEW action for uncertain cases
 
+### Audit Trail
+
+<p align="center">
+  <img src="./images/auditlogs.png" alt="Audit Logs" width="700"/>
+  <br>
+  <em>Figure 6: Immutable audit logs — every action logged with user, timestamp, and outcome</em>
+</p>
+
 ### Known Limits / Failure Modes
 1. **Low recall (20.5%)** — Agent too conservative; misses 80% of fraud
 2. **Cold start** — Requires initial training (~50k timesteps, ~75 seconds)
@@ -235,6 +279,7 @@ fraud-demo/
 │   └── requirements.txt     # Python dependencies
 ├── frontend/
 │   └── index.html           # Event-driven UI (Vanilla JS + SSE)
+├── images/                  # Demo screenshots
 ├── generate_data.py         # Monte Carlo transaction generator
 ├── prod_generator.py        # Live traffic simulator
 ├── start_tmux.sh            # Production orchestrator
@@ -244,5 +289,4 @@ fraud-demo/
 
 ---
 
-**Maintainers:** Aarush Sharma, Nausheer Syed, Michael Ibrahim • **Contact:** [as2027@uw.edu | micibr@uw.edu
-| nsyed1@uw.edu]
+**Maintainers:** Aarush Sharma, Nausheer Syed, Michael Ibrahim • **Contact:** as2027@uw.edu | micibr@uw.edu | nsyed1@uw.edu
